@@ -152,7 +152,6 @@ Item {
     // Omarchy's library (hidden entries filtered) when there is one, else
     // Quickshell's own list of desktop entries.
     if (!entries || entries.length === 0) entries = DesktopEntries.applications.values || []
-    console.warn("jvdp.launcher apps: library=" + !!root.appLibrary + " entries=" + (entries ? entries.length : -1) + " first=" + (entries && entries.length ? entries[0].id : "-"))
     var apps = []
     for (var i = 0; i < entries.length; i++) {
       // The library hands out rows ({entry, score, …}); Quickshell, entries.
