@@ -1,13 +1,13 @@
 #!/bin/bash
-# An example script command (Raycast's format). Copy it to
+# An example script command. Copy it to
 # ~/.config/omarchy/launcher/commands/ and make it your own.
 #
-# @raycast.schemaVersion 1
-# @raycast.title IP addresses
-# @raycast.mode fullOutput
-# @raycast.icon 󰩟
-# @raycast.packageName Network
-# @raycast.description This machine's addresses, per interface
+# @launcher.schemaVersion 1
+# @launcher.title IP addresses
+# @launcher.mode fullOutput
+# @launcher.icon 󰩟
+# @launcher.packageName Network
+# @launcher.description This machine's addresses, per interface
 
 ip -brief address | grep -v '^lo ' | awk '{ printf "%-16s %-8s %s\n", $1, $2, $3 }'
 echo

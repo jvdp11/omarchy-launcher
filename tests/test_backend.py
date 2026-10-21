@@ -106,10 +106,10 @@ class JsoncTest(unittest.TestCase):
 
 
 class ScriptHeaderTest(unittest.TestCase):
-    def test_raycast_header(self):
+    def test_script_header(self):
         with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
-            f.write("#!/bin/bash\n# @raycast.schemaVersion 1\n# @raycast.title Public IP\n"
-                    "# @raycast.mode compact\n# @raycast.argument1 { \"type\": \"text\", \"placeholder\": \"Host\" }\n")
+            f.write("#!/bin/bash\n# @launcher.schemaVersion 1\n# @launcher.title Public IP\n"
+                    "# @launcher.mode compact\n# @launcher.argument1 { \"type\": \"text\", \"placeholder\": \"Host\" }\n")
         try:
             meta = scripts.parse_header(f.name)
         finally:

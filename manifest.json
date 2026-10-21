@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "jvdp",
   "license": "MIT",
-  "description": "A Raycast-style launcher: apps, Omarchy commands, files, calculator, world clock, clipboard, emoji, snippets, quicklinks, 1Password, herdr, your plugins, script commands and Ask Claude, in one search.",
+  "description": "One search for your Omarchy desktop: apps, Omarchy commands, files, calculator, world clock, clipboard, emoji, snippets, quicklinks, 1Password, herdr, your plugins, script commands and Ask Claude, in one search.",
   "kinds": [
     "menu"
   ],

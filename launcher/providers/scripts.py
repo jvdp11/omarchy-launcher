@@ -1,23 +1,21 @@
 """Script commands: any executable in ~/.config/omarchy/launcher/commands/.
 
-Uses Raycast's script-command header, so scripts from
-github.com/raycast/script-commands work unchanged:
+A script describes itself in comments near the top:
 
-  # @raycast.schemaVersion 1
-  # @raycast.title Public IP
-  # @raycast.mode fullOutput        silent | compact | fullOutput | inline
-  # @raycast.icon 🌐
-  # @raycast.argument1 { "type": "text", "placeholder": "Query", "optional": true }
-  # @raycast.needsConfirmation true
+  # @launcher.schemaVersion 1
+  # @launcher.title Public IP
+  # @launcher.mode fullOutput        silent | compact | fullOutput | inline | list
+  # @launcher.icon 🌐
+  # @launcher.argument1 { "type": "text", "placeholder": "Query", "optional": true }
+  # @launcher.needsConfirmation true
 
-`@launcher.` works as a synonym, and adds one mode of its own:
+(Headers written as @raycast.* are read the same way, so existing
+script-command collections work unchanged.)
 
-  # @launcher.mode list
-  # @launcher.prefix man
-
-A list script is a search source: it gets the query as $1 and prints one JSON
-object per line, {"title", "subtitle", "icon", "accessory", "action"}, where
-action is {"open": url}, {"copy": text}, {"paste": text} or {"run": [argv]}.
+A list script is a search source: with `@launcher.prefix man` it gets the
+query as $1 and prints one JSON object per line, {"title", "subtitle", "icon",
+"accessory", "action"}, where action is {"open": url}, {"copy": text},
+{"paste": text} or {"run": [argv]}.
 """
 
 from __future__ import annotations
@@ -35,7 +33,7 @@ MAX_OUTPUT = 200_000
 
 
 def parse_header(path: str) -> dict | None:
-    """The @raycast./@launcher. fields of a script, or None if it has none."""
+    """The @launcher. fields of a script, or None if it has none."""
     meta: dict = {"arguments": []}
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
@@ -72,7 +70,7 @@ def script_dirs(settings) -> list[str]:
 class Scripts(Provider):
     id = "scripts"
     name = "Script commands"
-    description = "Your scripts in ~/.config/omarchy/launcher/commands (Raycast format)"
+    description = "Your scripts in ~/.config/omarchy/launcher/commands"
 
     def __init__(self, ctx):
         super().__init__(ctx)

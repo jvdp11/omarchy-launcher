@@ -1,152 +1,189 @@
 # Launcher
 
-A Raycast-style launcher for the Omarchy shell: one search box for apps,
-Omarchy commands, files, sums, world clocks, the clipboard, emoji, snippets,
-quicklinks, 1Password, herdr spaces, projects, your other plugins, script
-commands and *Ask Claude*. It follows the Omarchy theme, because it uses the
-same colour tokens as the Omarchy menu.
+```
+██╗      █████╗ ██╗   ██╗███╗   ██╗ ██████╗██╗  ██╗███████╗██████╗
+██║     ██╔══██╗██║   ██║████╗  ██║██╔════╝██║  ██║██╔════╝██╔══██╗
+██║     ███████║██║   ██║██╔██╗ ██║██║     ███████║█████╗  ██████╔╝
+██║     ██╔══██║██║   ██║██║╚██╗██║██║     ██╔══██║██╔══╝  ██╔══██╗
+███████╗██║  ██║╚██████╔╝██║ ╚████║╚██████╗██║  ██║███████╗██║  ██║
+╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+```
 
-**Alt + Space** opens it (bound in the dotfiles), or `omarchy-shell shell toggle jvdp.launcher`.
+**One search for your whole Omarchy desktop.** Press a key, type a few
+letters, hit Enter: apps, every Omarchy command, files, sums, time zones,
+clipboard history, emoji, snippets, 1Password, your projects and your own
+scripts — and when none of that helps, ask Claude.
 
-## Keys
+It lives inside the Omarchy shell, so it opens instantly and wears whatever
+theme you're on.
+
+<p align="center"><img src="assets/launcher.png" alt="The launcher searching for “fire”" width="640"></p>
+
+---
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/jvdp11/omarchy-launcher.git
+```
+
+Then give it a key in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("ALT + SPACE", "Launcher", "omarchy-shell shell toggle jvdp.launcher")
+```
+
+Optional: `omarchy pkg add libqalculate` teaches the calculator units,
+currencies, dates and time zones. Plain sums work without it.
+
+## The keys
 
 | Key | Does |
 |---|---|
-| type | search everything that is on in the normal search |
-| ↑ ↓, Ctrl+J/K, PgUp/PgDn | move |
-| Enter | the result's main action (shown bottom right) |
-| Tab or Ctrl+K | all actions of the result, with their shortcuts |
-| Ctrl+P | add to / remove from favourites |
-| Ctrl+L | set an alias: type it exactly and that result comes first |
-| Ctrl+, | settings |
-| Esc | back: actions → page → argument → clear the search → close |
+| *type* | search |
+| `↑` `↓` · `Ctrl+J/K` · `PgUp/PgDn` | move |
+| `Enter` | the main action (shown bottom right) |
+| `Tab` or `Ctrl+K` | every action for the result, with its shortcut |
+| `Ctrl+P` | favourite / unfavourite |
+| `Ctrl+L` | alias: type it exactly and that result comes first |
+| `Ctrl+,` | settings |
+| `Esc` | one step back, and finally close |
 
-Before you type, it shows your favourites and what you use most (frecency:
-uses count for less as they get older). The search you used to find something
-is remembered too, so typing it again puts that result first.
+It opens on your **favourites**, what you **use most**, and a few
+**suggestions** from your dock. It learns: what you pick moves up, and the
+search you used to find something finds it first next time.
 
 ## What it finds
 
-In the normal search: apps (from Omarchy's app library, launched with its
-launch feedback), every Omarchy menu command (its `when` conditions checked),
-plugin commands, script commands, quicklinks, snippets, herdr spaces,
-projects, open windows, sums, world clocks, recent files, manual sections,
-audio outputs, microphones, Bluetooth devices, Wi-Fi networks, themes, Azure
-subscriptions and (once listed) 1Password items.
+Just type. These are searched together:
 
-Behind a prefix (all can be changed under *Search sources*):
+- **Apps**, including their own actions (*New Private Window*)
+- **Omarchy commands**: every row of the Omarchy menu, from *Lock* to *Install › Font*
+- **Your other plugins**: download a video, stay awake, switch the case lighting, today's agenda, join the next meeting…
+- **Projects**, **herdr spaces** and **open windows**
+- **Sums** and **conversions**: `2*(3+4)`, `5 ft to cm`, `100 usd to eur`, `today + 3 weeks`
+- **World clock**: `time in tokyo`, `nyc time`, `15:00 in tokyo`, `3pm london in tokyo`
+- **Recent files**, **themes**, **audio devices**, **Bluetooth**, **Wi-Fi networks**
+- **Quicklinks** with an argument: `gh owner/repo`, `aur foo`, `yt lofi`
+- **Snippets**, pasted where you were typing
+- **Your manual**: the sections of `~/.dotfiles/README.md`
+
+Under every search: *Search the web*, *Ask Claude* and *Search files*.
+
+### Prefixes
+
+Start with a prefix to search just one thing:
 
 | Prefix | Searches |
 |---|---|
-| `/` | files under your folders (fd) |
-| `=` | calculator; also works without `=`: `5 ft to cm`, `100 usd to eur`, `today + 3 weeks` |
-| `tz` | world clock; also without: `time in tokyo`, `nyc time`, `15:00 in tokyo`, `3pm london in tokyo` |
-| `cb` | clipboard history (Omarchy's): Enter pastes, Ctrl+C copies |
+| `/` | files and folders (with `fd`) |
+| `=` | calculator |
+| `tz` | world clock |
+| `cb` | clipboard history — Enter pastes, `Ctrl+C` copies |
 | `:` | emoji |
-| `>` | shell command; Ctrl+O runs it and shows the output here |
-| `?` | the web; a bare domain opens it |
-| `ql`, `sn` | quicklinks, snippets (with *Create…*, and Edit/Delete on Tab) |
-| `1p` | 1Password: Enter copies the password, Ctrl+U username, Ctrl+O one-time code |
-| `ask` | Ask Claude, answering in the launcher from your Omarchy space |
+| `>` | run a shell command — `Ctrl+O` shows its output right there |
+| `?` | the web |
+| `1p` | 1Password — Enter copies the password, `Ctrl+U` the username, `Ctrl+O` the code |
+| `ask` | Claude, answering about your setup |
 | `kill` | processes, biggest first |
-| `keys` | keyboard shortcuts (`hyprctl binds`) |
-| `help` | the dotfiles manual's sections |
-| `hs`, `pj`, `win`, `theme`, `az` | herdr spaces, projects, windows, themes, Azure |
+| `keys` | every keyboard shortcut |
+| `help` | your dotfiles manual |
+| `ql` · `sn` | quicklinks · snippets (create, edit, delete) |
+| `hs` · `pj` · `win` · `theme` · `az` | herdr spaces · projects · windows · themes · Azure subscriptions |
 
-Under every search sit *Search the web*, *Ask Claude* and *Search files*
-(settings: *Under every search*).
+Every prefix can be changed, and every source switched off or limited to its
+prefix, under *Search sources*.
 
-Quicklinks take an argument after their keyword: `gh owner/repo`, `aur foo`,
-`yt lofi`. Snippets fill in `{date}`, `{time}`, `{datetime}`, `{weekday}`,
-`{uuid}` and `{clipboard}`, and paste into the window you came from.
+## Highlights
 
-### Your plugins
+**Ask Claude.** Type a question, pick *Ask Claude*, and the answer streams into
+the launcher. It runs from your Omarchy space (`~/Work/omarchy`), so it knows
+your manual and your rules, and it is read-only: it can look, never change.
+`Ctrl+Enter` hands the question to that space in herdr when you want it *done*.
 
-Shown only when the plugin is installed: Snag (download the clipboard link as
-video, GIF or audio, or a link you type), Awake (`awake 2h`, 1h/4h/8h/∞, off),
-Atmosphere (lights, snow, party, case and keyboard effects), Netwatch
-(`block example.com`, unblock, the panel), Clock+ (today's agenda, *Join next
-meeting*, refresh) and Weather+.
+**1Password, carefully.** Titles only, kept in memory. A secret is fetched only
+when you pick it, copied as *sensitive* (Omarchy's clipboard history skips
+it) and wiped from the clipboard after 30 seconds. 1Password's approval
+covers only the launcher's own `op` calls: scripts and shell commands run
+outside it. Nothing from 1Password is ever written to disk.
 
-### 1Password
-
-`op` lists titles, vaults and URLs only, kept in memory. Secrets are fetched
-when you pick one, after the launcher has closed (1Password's authorization
-dialog needs the keyboard). They are copied with `wl-copy --sensitive`, so
-Omarchy's clipboard history skips them, and cleared after 30 seconds
-(settings). A locked CLI shows *Unlock 1Password*; the launcher comes back
-afterwards. Commands run as `setsid -w op`.
-
-### Ask Claude
-
-Runs `claude -p` in `~/Work/omarchy` (settings), so it knows the manual and
-the rules there. It is read-only: Read, Grep, Glob and a few listing commands.
-The answer streams in as Markdown, with images and HTML removed first. Ctrl+Enter
-hands the question to the omarchy space in herdr instead, for things it should
-*do*.
-
-## Script commands
-
-Executables in `~/.config/omarchy/launcher/commands/` (Tab → *Open script
-commands folder*) with [Raycast's script-command header](https://github.com/raycast/script-commands),
-so scripts from that collection work unchanged:
+**Your own commands.** Drop an executable in
+`~/.config/omarchy/launcher/commands/` and it shows up:
 
 ```bash
 #!/bin/bash
-# @raycast.schemaVersion 1
-# @raycast.title Public IP
-# @raycast.mode compact          # silent | compact | fullOutput | inline
-# @raycast.icon 🌐
-# @raycast.argument1 { "type": "text", "placeholder": "Host", "optional": true }
+# @launcher.schemaVersion 1
+# @launcher.title Public IP
+# @launcher.mode compact        # silent · compact · fullOutput · list
+# @launcher.icon 🌐
 curl -s https://ifconfig.me
 ```
 
-`@launcher.` works as well, plus `@launcher.mode list` with `@launcher.prefix`:
-the script becomes a search source that gets the query as `$1` and prints one
-JSON object per line: `{"title", "subtitle", "icon", "accessory", "action"}`,
-with action `{"open": url}`, `{"copy": text}`, `{"paste": text}` or
-`{"run": [argv]}`. Examples are in `commands/`, among them `man` for manual pages.
+Add `@launcher.argument1 { "type": "text", "placeholder": "Host" }` and it
+asks for input first. With `@launcher.mode list` and `@launcher.prefix man`,
+the script becomes a search source of its own: it gets the query as `$1` and
+prints one JSON line per result,
+
+```json
+{"title": "grep(1)", "subtitle": "print lines that match patterns", "action": {"run": ["xdg-terminal-exec", "man", "grep"]}}
+```
+
+with `open`, `copy`, `paste` or `run` as the action. Both examples are in
+[`commands/`](commands/).
 
 ## Settings
 
-`Ctrl+,` or *Launcher settings*; stored in
-`~/.config/omarchy/omarchy-launcher.json` (only what differs from the
-defaults; editing it by hand works too).
+`Ctrl+,` opens them in the launcher itself. They are stored in
+`~/.config/omarchy/omarchy-launcher.json`, which holds only what you changed.
 
-- **Look:** position (upper third or centred), width, rows, second line on or off.
-- **Search:** what shows before typing, remember the last search, the rows under every search.
-- **Search sources:** each source on everywhere, only with its prefix, or off; the prefixes.
-- **Web:** search engine (DuckDuckGo, Google, Kagi, Startpage, Bing, custom URL), quicklinks, snippets.
-- **Files and projects:** folders, what to skip, hidden files, depth, recent files; project folders (globs) and what opens them.
-- **Commands:** shell commands in a terminal or the background; live exchange rates.
-- **1Password:** what Enter copies, when the clipboard is cleared, which account.
-- **Claude:** model, and the folder it asks from.
+| | |
+|---|---|
+| **Look** | upper third or centred · width · rows · second line |
+| **Search** | what shows before you type · remember the last search · the rows under every search |
+| **Search sources** | each one everywhere, behind its prefix, or off · the prefixes |
+| **Web** | DuckDuckGo, Google, Kagi, Startpage, Bing or your own URL · quicklinks · snippets |
+| **Files & projects** | folders, what to skip, hidden files, depth, recent files · project folders and what opens them |
+| **Commands** | shell commands in a terminal or the background · live exchange rates |
+| **1Password** | what Enter copies · clipboard clear time · account |
+| **Claude** | model · the folder it answers from |
 
-Favourites, aliases and recent items: Tab on a result. *Clear launcher
-history* forgets the recent list.
+## How it works
 
-## Files
+```
+ Alt+Space ─▶ Launcher.qml  ◀── JSON lines ──▶  bin/launcher serve
+              (the overlay, in                  (Python: sources, ranking,
+               the Omarchy shell)                history, settings, actions)
+```
+
+The overlay draws and handles keys; a small Python backend does the
+searching. Fast sources answer at once, slow ones (files, 1Password, the
+calculator) stream in a moment later. Test a search from a terminal:
+
+```bash
+bin/launcher query time in tokyo
+python3 -m unittest discover -s tests
+```
 
 | Path | What |
 |---|---|
-| `Launcher.qml` | the overlay: search line, results, pages, keys |
-| `ResultRow.qml`, `ActionsPopup.qml`, `DetailView.qml`, `FormView.qml`, `KeyHint.qml` | its parts |
-| `bin/launcher` | the backend (`serve`), plus `query TEXT` to test a search in a terminal and `open [TEXT]` |
-| `launcher/` | search, ranking, history, settings and one module per kind of source (`providers/`) |
+| `Launcher.qml` | the overlay |
+| `ResultRow.qml` · `ActionsPopup.qml` · `DetailView.qml` · `FormView.qml` · `KeyHint.qml` | its parts |
+| `bin/launcher` | the backend: `serve`, `query TEXT`, `open [TEXT]` |
+| `launcher/providers/` | one module per kind of result |
 | `commands/` | example script commands |
-| `tests/` | `python3 -m unittest discover -s tests` |
+| `tests/` | unit tests |
 
-State: `~/.local/state/omarchy-launcher/history.json`.
+After changing a QML file, run `omarchy restart shell`: the shell keeps its
+own copy of linked plugins.
 
-## Optional packages
+## Privacy
 
-- `libqalculate` (`qalc`) for units, currencies, dates and time zones in the
-  calculator. Plain sums work without it.
-- `fd` (in Omarchy) for the file search.
+Nothing leaves your machine unless you ask. Web searches and quicklinks open
+your browser; *Ask Claude* sends your question only when you pick it; the
+calculator lets `qalc` fetch exchange rates once a day, and you can turn that off.
+Your history (`~/.local/state/omarchy-launcher/`) never holds 1Password items
+or clipboard contents.
 
-## Privacy and network
+## License
 
-Nothing goes over the network unless you ask: web searches and quicklinks open
-your browser; the calculator lets `qalc` refresh exchange rates once a day
-(turn off under *Live exchange rates*); Ask Claude sends your question to
-Claude only when you pick it.
+MIT © jvdp11
