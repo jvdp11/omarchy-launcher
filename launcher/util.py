@@ -31,10 +31,16 @@ def have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+# Every command runs in a session of its own (start_new_session), never in the
+# backend's: 1Password authorizes op per session, and that authorization is
+# meant for the launcher's own op calls only (providers/onepassword.py), not
+# for scripts, shell commands or menu conditions that happen to call op.
+
 def run(argv: list[str], timeout: float = 3, input: str | None = None, cwd: str | None = None) -> str:
     """Run a command and return its stdout ("" on any failure)."""
     try:
-        out = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, input=input, cwd=cwd)
+        out = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, input=input, cwd=cwd,
+                             start_new_session=True)
         return out.stdout if out.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -43,7 +49,7 @@ def run(argv: list[str], timeout: float = 3, input: str | None = None, cwd: str 
 def run_ok(argv: list[str], timeout: float = 5) -> tuple[bool, str]:
     """Run a command; (succeeded, stdout + stderr)."""
     try:
-        out = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        out = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, start_new_session=True)
         return out.returncode == 0, (out.stdout + out.stderr).strip()
     except (OSError, subprocess.SubprocessError) as e:
         return False, str(e)
@@ -133,13 +139,20 @@ def paste(text: str) -> None:
 
 
 def clear_clipboard_after(seconds: int, secret: str) -> None:
-    """Empty the clipboard after a while, if it still holds the secret."""
+    """Empty the clipboard after a while, if it still holds the secret.
+
+    Done here, in the backend, so nothing about the secret (not even a hash)
+    ends up in another process's arguments, where `ps` would show it.
+    """
     if seconds <= 0:
         return
-    import hashlib
-    digest = hashlib.sha256(secret.encode()).hexdigest()
-    script = (
-        f"sleep {int(seconds)}; "
-        f"[ \"$(wl-paste --no-newline 2>/dev/null | sha256sum | cut -d' ' -f1)\" = {digest} ] && wl-copy --clear"
-    )
-    spawn(["bash", "-c", script])
+    import hmac
+
+    def check():
+        current = run(["wl-paste", "--no-newline", "--type", "text/plain"], timeout=3)
+        if current and hmac.compare_digest(current.encode(), secret.encode()):
+            spawn(["wl-copy", "--clear"])
+
+    t = threading.Timer(seconds, check)
+    t.daemon = True
+    t.start()

@@ -124,7 +124,7 @@ class Scripts(Provider):
     def list_search(self, script: dict, q: str) -> list[dict]:
         try:
             out = subprocess.run([script["_path"], q], capture_output=True, text=True, timeout=5,
-                                 cwd=script["_dir"])
+                                 cwd=script["_dir"], start_new_session=True)
         except (OSError, subprocess.SubprocessError):
             return []
         items = []
@@ -184,7 +184,7 @@ class Scripts(Provider):
             util.spawn(argv, cwd=it["_dir"])
             return [close()]
         try:
-            out = subprocess.run(argv, capture_output=True, text=True, timeout=30, cwd=it["_dir"])
+            out = subprocess.run(argv, capture_output=True, text=True, timeout=30, cwd=it["_dir"], start_new_session=True)
         except subprocess.TimeoutExpired:
             return [toast(f"{it['title']} took longer than 30 seconds", True)]
         except OSError as e:

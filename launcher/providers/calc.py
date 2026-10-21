@@ -111,7 +111,7 @@ class Calculator(Provider):
             argv.append("-e")
             self._rates_checked = time.time()
         try:
-            out = subprocess.run(argv + [q], capture_output=True, text=True, timeout=6 if "-e" in argv else 2.5)
+            out = subprocess.run(argv + [q], capture_output=True, text=True, timeout=6 if "-e" in argv else 2.5, start_new_session=True)
         except (OSError, subprocess.SubprocessError):
             return None
         text = out.stdout.strip().splitlines()

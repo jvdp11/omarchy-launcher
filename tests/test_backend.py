@@ -169,6 +169,48 @@ class ServerTest(unittest.TestCase):
         self.assertIn("web:search", fallback_ids)
 
 
+class SecurityTest(unittest.TestCase):
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def test_only_op_runs_in_the_backends_session(self):
+        """1Password authorizes the backend's session; nothing else may run in it."""
+        import re
+        for dirpath, _, files in os.walk(os.path.join(self.ROOT, "launcher")):
+            for name in files:
+                if not name.endswith(".py"):
+                    continue
+                src = open(os.path.join(dirpath, name)).read()
+                for m in re.finditer(r"subprocess\.(run|Popen)\(", src):
+                    call = src[m.start():src.find("\n\n", m.start())]
+                    inside_op_run = "def op_run" in src[max(0, m.start() - 200):m.start()]
+                    self.assertTrue("start_new_session=True" in call or inside_op_run,
+                                    f"{name}: {call.splitlines()[0]}")
+
+    def test_secret_never_in_argv(self):
+        from unittest import mock
+        from launcher import util
+        calls = []
+        with mock.patch.object(util, "spawn", lambda argv, **k: calls.append(argv)), \
+                mock.patch.object(util, "run", lambda argv, **k: "hunter2"), \
+                mock.patch("threading.Timer") as timer:
+            util.clear_clipboard_after(30, "hunter2")
+            timer.call_args[0][1]()          # fire the timer now
+        import hashlib
+        digest = hashlib.sha256(b"hunter2").hexdigest()
+        self.assertEqual(calls, [["wl-copy", "--clear"]])
+        self.assertFalse(any("hunter2" in a or digest in a for argv in calls for a in argv))
+
+    def test_onepassword_items_are_not_recorded(self):
+        from launcher.state import History
+        with tempfile.TemporaryDirectory() as d:
+            h = History(os.path.join(d, "h.json"))
+            h.record({"id": "onepassword:abc", "title": "Bank", "_uid": "abc"})
+            h.record({"id": "apps:foot", "title": "foot"})
+            self.assertEqual(list(h.entries), ["apps:foot"])
+            with open(os.path.join(d, "h.json")) as f:
+                self.assertNotIn("Bank", f.read())
+
+
 class _Ctx:
     def __init__(self):
         self.settings = Settings(os.devnull)

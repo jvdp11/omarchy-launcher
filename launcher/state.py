@@ -16,6 +16,7 @@ from .util import STATE
 
 HALF_LIFE = 7 * 24 * 3600   # a use counts half as much a week later
 KEEP = 400
+PRIVATE = ("onepassword:", "clipboard:")
 
 
 class History:
@@ -30,7 +31,9 @@ class History:
             with open(self.path, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
-                self.entries = {k: v for k, v in data.items() if isinstance(v, dict)}
+                # 1Password items never belong on disk (older versions wrote them).
+                self.entries = {k: v for k, v in data.items()
+                                if isinstance(v, dict) and not k.startswith(PRIVATE)}
         except (OSError, ValueError):
             self.entries = {}
 
@@ -43,6 +46,8 @@ class History:
 
     def record(self, item: dict, query: str = "") -> None:
         """Count one use of an item; remember what it looked like."""
+        if item["id"].startswith(PRIVATE):
+            return
         now = time.time()
         with self._lock:
             e = self.entries.get(item["id"], {})

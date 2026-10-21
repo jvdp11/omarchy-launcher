@@ -133,7 +133,7 @@ class Files(Provider):
             else [_regex_escape(q)]
         argv += roots
         try:
-            out = subprocess.run(argv, capture_output=True, text=True, timeout=3)
+            out = subprocess.run(argv, capture_output=True, text=True, timeout=3, start_new_session=True)
         except (OSError, subprocess.SubprocessError):
             return []
         return [line for line in out.stdout.splitlines() if line]

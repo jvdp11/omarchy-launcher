@@ -24,6 +24,11 @@ CATEGORY_ICONS = {"LOGIN": "󰌆", "PASSWORD": "󰌆", "API_CREDENTIAL": "󰯄",
                   "CREDIT_CARD": "󰆛", "SERVER": "󰒋", "DATABASE": "󰆼", "IDENTITY": "󰀉"}
 
 
+def op_run(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
+    """op in the backend's own session, the only commands that run there."""
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+
+
 def op_argv(settings, *args) -> list[str]:
     # No setsid here: the backend leads a session of its own (bin/launcher),
     # so every op call shares one authorization, like commands in a terminal.
@@ -58,15 +63,18 @@ class OnePassword(Provider):
             # whoami never prompts. Not authorized yet: with the overlay open
             # that becomes an Unlock row (may_ask False); after it has closed,
             # the list call below lets op ask.
-            ok, msg = util.run_ok(op_argv(self.settings, "whoami"), timeout=8)
+            try:
+                who = op_run(op_argv(self.settings, "whoami"), 8)
+                ok, msg = who.returncode == 0, who.stderr.strip()
+            except (OSError, subprocess.SubprocessError) as e:
+                ok, msg = False, str(e)
             if not ok and not may_ask:
                 self.locked = True
                 self.error = (msg.splitlines() or ["not signed in"])[-1]
                 return
             self.locked = False
             try:
-                out = subprocess.run(op_argv(self.settings, "item", "list", "--format", "json"),
-                                     capture_output=True, text=True, timeout=60)
+                out = op_run(op_argv(self.settings, "item", "list", "--format", "json"), 60)
             except (OSError, subprocess.SubprocessError) as e:
                 self.error = str(e)
                 return
@@ -86,7 +94,7 @@ class OnePassword(Provider):
                 vault = (r.get("vault") or {}).get("name", "")
                 sub = " · ".join(x for x in [vault, str(r.get("additional_information") or "")] if x)
                 items.append(item("onepassword", r["id"], str(r.get("title") or "(untitled)"), subtitle=sub,
-                                  icon=CATEGORY_ICONS.get(cat, "󰌆"), accessory="1Password", recordable=True,
+                                  icon=CATEGORY_ICONS.get(cat, "󰌆"), accessory="1Password", recordable=False,
                                   _keywords=[str(r.get("additional_information") or "")] + urls,
                                   _uid=r["id"], _urls=urls, _category=cat, _vault=vault))
             self.items = items
@@ -168,7 +176,7 @@ class OnePassword(Provider):
         else:
             args = ["item", "get", uid, "--fields", "type=concealed", "--reveal", "--format", "json"]
         try:
-            out = subprocess.run(op_argv(self.settings, *args), capture_output=True, text=True, timeout=60)
+            out = op_run(op_argv(self.settings, *args), 60)
         except (OSError, subprocess.SubprocessError) as e:
             util.notify("1Password", str(e), icon="1password")
             return

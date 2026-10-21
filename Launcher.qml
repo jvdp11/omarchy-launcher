@@ -115,6 +115,7 @@ Item {
     root.form = null
     root.toastText = ""
     root.opened = true
+    root.sendApps()
     root.send({ op: "open" })
     if (payload.query !== undefined) root.setFilter(String(payload.query))
     else if (!root.rememberQuery) root.setFilter("")
@@ -144,12 +145,18 @@ Item {
     if (backend.running) backend.write(JSON.stringify(obj) + "\n")
   }
 
+  // Sent on every open as well: at shell start the app list can still be
+  // empty, and an empty list here would hide every app until a change.
   function sendApps() {
-    if (!root.appLibrary) return
-    var entries = root.appLibrary.sortedEntries("")
+    var entries = root.appLibrary ? root.appLibrary.sortedEntries("") : []
+    // Omarchy's library (hidden entries filtered) when there is one, else
+    // Quickshell's own list of desktop entries.
+    if (!entries || entries.length === 0) entries = DesktopEntries.applications.values || []
+    console.warn("jvdp.launcher apps: library=" + !!root.appLibrary + " entries=" + (entries ? entries.length : -1) + " first=" + (entries && entries.length ? entries[0].id : "-"))
     var apps = []
     for (var i = 0; i < entries.length; i++) {
-      var e = entries[i]
+      // The library hands out rows ({entry, score, …}); Quickshell, entries.
+      var e = entries[i] && entries[i].entry ? entries[i].entry : entries[i]
       if (!e || !e.id) continue
       var acts = []
       try {
@@ -161,7 +168,7 @@ Item {
       var keywords = []
       try { if (e.keywords) for (var k = 0; k < e.keywords.length; k++) keywords.push(String(e.keywords[k])) } catch (err2) {}
       apps.push({
-        id: String(e.id), name: root.appLibrary.entryName(e), generic: String(e.genericName || ""),
+        id: String(e.id), name: String(e.name || e.id), generic: String(e.genericName || ""),
         comment: String(e.comment || ""), icon: String(e.icon || ""), keywords: keywords,
         exec: String(e.execString || ""), actions: acts
       })
@@ -173,6 +180,10 @@ Item {
     target: root.appLibrary
     ignoreUnknownSignals: true
     function onAppsChanged() { appsTimer.restart() }
+  }
+  Connections {
+    target: DesktopEntries.applications
+    function onValuesChanged() { appsTimer.restart() }
   }
   Timer { id: appsTimer; interval: 500; onTriggered: root.sendApps() }
 

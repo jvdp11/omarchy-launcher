@@ -112,6 +112,7 @@ def check_conditions(rows: dict) -> dict:
         return {}
     try:
         out = subprocess.run(["bash", "-c", "\n".join(lines)], capture_output=True, text=True, timeout=8,
+                             start_new_session=True,
                              env=dict(os.environ, PATH=os.path.join(util.OMARCHY_PATH, "bin") + ":" + os.environ.get("PATH", "")))
         answers = out.stdout.split()
     except (OSError, subprocess.SubprocessError):
