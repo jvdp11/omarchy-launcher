@@ -4,9 +4,10 @@ Only titles, vaults and URLs are kept, in memory; secrets are fetched when you
 pick one, copied with wl-copy's --sensitive flag (so Omarchy's clipboard
 history skips them) and cleared after the configured number of seconds.
 
-`op` asks the desktop app for permission; the first list happens the first
-time you use the `1p` prefix in a session, not on every open, so the launcher
-never pops up an unlock prompt on its own.
+`op` asks the 1Password app for permission once per session (the backend's,
+which lasts as long as the shell). Asking needs the keyboard, which the overlay
+holds, so whenever op might ask, the launcher closes first and comes back when
+the list is there. It never pops up an authorization prompt on its own.
 """
 
 from __future__ import annotations
@@ -24,9 +25,9 @@ CATEGORY_ICONS = {"LOGIN": "󰌆", "PASSWORD": "󰌆", "API_CREDENTIAL": "󰯄",
 
 
 def op_argv(settings, *args) -> list[str]:
-    # Launched from the shell, op needs its own session to reach the desktop
-    # app's authorization prompt (see the Omarchy space rules: setsid -w op).
-    argv = ["setsid", "-w", "op"] + list(args)
+    # No setsid here: the backend leads a session of its own (bin/launcher),
+    # so every op call shares one authorization, like commands in a terminal.
+    argv = ["op"] + list(args)
     account = settings.get("onepassword.account", "")
     if account:
         argv += ["--account", account]
@@ -50,14 +51,15 @@ class OnePassword(Provider):
     def available(self):
         return util.have("op")
 
-    def _load(self) -> None:
+    def _load(self, may_ask: bool = False) -> None:
         with self._loading:
             if time.time() - self.loaded_at < 600 and self.items:
                 return
-            # whoami never prompts; a locked account becomes an Unlock row, so
-            # the authorization dialog only appears once the overlay is gone.
+            # whoami never prompts. Not authorized yet: with the overlay open
+            # that becomes an Unlock row (may_ask False); after it has closed,
+            # the list call below lets op ask.
             ok, msg = util.run_ok(op_argv(self.settings, "whoami"), timeout=8)
-            if not ok:
+            if not ok and not may_ask:
                 self.locked = True
                 self.error = (msg.splitlines() or ["not signed in"])[-1]
                 return
@@ -94,9 +96,9 @@ class OnePassword(Provider):
     def search(self, q, scoped):
         if scoped:
             self._load()
-            if self.locked or (self.error and not self.items):
+            if not self.items:
                 return [item("onepassword", "unlock", "Unlock 1Password",
-                             subtitle="Authorize the 1Password CLI, then the launcher comes back",
+                             subtitle="Enter: 1Password asks to allow the launcher, then it comes back with your items",
                              icon="󰌾", accessory="1Password", recordable=False, score=1, _unlock=True)]
             if not q.strip():
                 return [dict(it, score=1) for it in sorted(self.items, key=lambda i: i["title"].lower())]
@@ -149,14 +151,12 @@ class OnePassword(Provider):
 
     def _unlock(self) -> None:
         time.sleep(0.3)
-        try:
-            subprocess.run(op_argv(self.settings, "signin"), capture_output=True, text=True, timeout=120)
-        except (OSError, subprocess.SubprocessError):
-            pass
         self.loaded_at = 0.0
-        self._load()
-        if not self.locked:
+        self._load(may_ask=True)
+        if self.items:
             util.spawn(["omarchy-shell", "shell", "summon", "jvdp.launcher", json.dumps({"query": "1p "})])
+        else:
+            util.notify("1Password", self.error or "Could not list your items", icon="1password")
 
     def _copy(self, it: dict, aid: str) -> None:
         time.sleep(0.3)

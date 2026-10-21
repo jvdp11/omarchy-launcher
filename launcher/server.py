@@ -317,7 +317,33 @@ class Server:
                 out.append(dict(current, section="Recent", score=0))
                 if len([o for o in out if o.get("section") == "Recent"]) >= 8:
                     break
+        # Fill the rest of the screen, so it never opens empty: the dock's
+        # pinned apps, then a few things worth knowing the launcher does.
+        rows = int(self.settings.get("general.rows", 9) or 9)
+        if len(out) < rows + 3:
+            shown = {o["id"] for o in out}
+            for sid in self.suggestions():
+                if len(out) >= rows + 3:
+                    break
+                if sid in shown:
+                    continue
+                it = self.find(sid)
+                if it:
+                    shown.add(sid)
+                    out.append(dict(it, section="Suggested", score=0))
         return out
+
+    def suggestions(self) -> list[str]:
+        ids = []
+        try:
+            with open(util.HOME / ".config/omarchy/shell.json", encoding="utf-8") as f:
+                pinned = (json.load(f).get("dock") or {}).get("pinned") or []
+        except (OSError, ValueError, AttributeError):
+            pinned = []
+        ids += ["apps:" + str(p) for p in pinned if isinstance(p, str)]
+        ids += ["plugins:agenda", "launcher:mode:clipboard", "launcher:mode:files", "launcher:mode:claude",
+                "launcher:mode:onepassword", "launcher:mode:emoji", "launcher:settings"]
+        return ids
 
     def _emit_results(self, seq: int, items: list[dict], done: bool) -> None:
         self.remember(items)

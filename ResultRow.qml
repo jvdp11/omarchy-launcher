@@ -9,13 +9,15 @@ BorderSurface {
 
   property var launcher: null
   property var entry: ({})
+  // Rows can outlive their data for a moment while the list is rebuilt.
+  readonly property var e: entry || ({})
   property bool current: false
 
   signal hoveredRow()
   signal activated()
 
-  readonly property bool hasAppIcon: !!entry.appIcon && !entry.image
-  readonly property bool hasImage: !!entry.image
+  readonly property bool hasAppIcon: !!e.appIcon && !e.image
+  readonly property bool hasImage: !!e.image
   readonly property color textColor: current ? launcher.selectedText : launcher.foreground
 
   radius: launcher.cornerRadius
@@ -33,7 +35,7 @@ BorderSurface {
       visible: !row.hasAppIcon && !row.hasImage
       textFormat: Text.PlainText
       anchors.centerIn: parent
-      text: row.entry.icon || "󰘳"
+      text: row.e.icon || "󰘳"
       color: row.textColor
       font.family: launcher.fontFamily
       font.pixelSize: Style.font.iconLarge
@@ -49,7 +51,7 @@ BorderSurface {
       sourceSize.width: width * Screen.devicePixelRatio
       sourceSize.height: height * Screen.devicePixelRatio
       asynchronous: true
-      source: row.hasAppIcon && launcher.appLibrary ? launcher.appLibrary.iconSource(row.entry.appIcon) : ""
+      source: row.hasAppIcon && launcher.appLibrary ? launcher.appLibrary.iconSource(row.e.appIcon) : ""
     }
 
     Image {
@@ -61,7 +63,7 @@ BorderSurface {
       sourceSize.width: width * Screen.devicePixelRatio
       sourceSize.height: height * Screen.devicePixelRatio
       asynchronous: true
-      source: row.hasImage ? Util.fileUrl(row.entry.image) : ""
+      source: row.hasImage ? Util.fileUrl(row.e.image) : ""
     }
   }
 
@@ -76,7 +78,7 @@ BorderSurface {
     Text {
       textFormat: Text.PlainText
       width: parent.width
-      text: row.entry.title || ""
+      text: row.e.title || ""
       color: row.textColor
       font.family: launcher.fontFamily
       font.pixelSize: Style.font.heading
@@ -88,8 +90,8 @@ BorderSurface {
     Text {
       textFormat: Text.PlainText
       width: parent.width
-      visible: launcher.showSubtitles && !!row.entry.subtitle
-      text: row.entry.subtitle || ""
+      visible: launcher.showSubtitles && !!row.e.subtitle
+      text: row.e.subtitle || ""
       color: launcher.foreground
       opacity: 0.5
       font.family: launcher.fontFamily
@@ -107,7 +109,7 @@ BorderSurface {
     spacing: Style.space(8)
 
     Text {
-      visible: row.entry.fav === true
+      visible: row.e.fav === true
       textFormat: Text.PlainText
       anchors.verticalCenter: parent.verticalCenter
       text: "󰓎"
@@ -121,7 +123,7 @@ BorderSurface {
       textFormat: Text.PlainText
       anchors.verticalCenter: parent.verticalCenter
       width: Math.min(implicitWidth, row.width * 0.32)
-      text: row.entry.accessory || ""
+      text: row.e.accessory || ""
       color: row.textColor
       opacity: row.current ? 0.8 : 0.42
       font.family: launcher.fontFamily

@@ -626,7 +626,7 @@ Item {
             section.delegate: Item {
               required property string section
               width: ListView.view.width
-              height: section === "Favourites" || section === "Recent" ? root.sectionHeight : (section === "fallback" ? Style.space(9) : 0)
+              height: section === "Favourites" || section === "Recent" || section === "Suggested" ? root.sectionHeight : (section === "fallback" ? Style.space(9) : 0)
               visible: height > 0
 
               Text {
