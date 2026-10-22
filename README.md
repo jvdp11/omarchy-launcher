@@ -60,13 +60,13 @@ Just type. These are searched together:
 - **Apps**, including their own actions (*New Private Window*)
 - **Omarchy commands**: every row of the Omarchy menu, from *Lock* to *Install › Font*
 - **Your other plugins**: download a video, stay awake, switch the case lighting, today's agenda, join the next meeting…
-- **Projects**, **herdr spaces** and **open windows**
+- **Projects** (folders matching your [project globs](#your-folder-layout)), **herdr spaces** and **open windows**
 - **Sums** and **conversions**: `2*(3+4)`, `5 ft to cm`, `100 usd to eur`, `today + 3 weeks`
 - **World clock**: `time in tokyo`, `nyc time`, `15:00 in tokyo`, `3pm london in tokyo`
 - **Recent files**, **themes**, **audio devices**, **Bluetooth**, **Wi-Fi networks**
 - **Quicklinks** with an argument: `gh owner/repo`, `aur foo`, `yt lofi`
 - **Snippets**, pasted where you were typing
-- **Your manual**: the sections of `~/.dotfiles/README.md`
+- **Your manual**: the sections of `~/.dotfiles/README.md`, or whichever Markdown files you name
 
 Under every search: *Search the web*, *Ask Claude* and *Search files*.
 
@@ -87,7 +87,7 @@ Start with a prefix to search just one thing:
 | `ask` | Claude, answering about your setup |
 | `kill` | processes, biggest first |
 | `keys` | every keyboard shortcut |
-| `help` | your dotfiles manual |
+| `help` | your own manual |
 | `ql` · `sn` | quicklinks · snippets (create, edit, delete) |
 | `hs` · `pj` · `win` · `theme` · `az` | herdr spaces · projects · windows · themes · Azure subscriptions |
 
@@ -97,9 +97,10 @@ prefix, under *Search sources*.
 ## Highlights
 
 **Ask Claude.** Type a question, pick *Ask Claude*, and the answer streams into
-the launcher. It runs from your Omarchy space (`~/Work/omarchy`), so it knows
-your manual and your rules, and it is read-only: it can look, never change.
-`Ctrl+Enter` hands the question to that space in herdr when you want it *done*.
+the launcher. It runs from a folder you choose (your home folder by default), so
+point it at one whose `CLAUDE.md` describes your setup and it knows your rules.
+It is read-only: it can look, never change. Name a herdr space in the settings
+and `Ctrl+Enter` hands the question to it when you want it *done*.
 
 **1Password, carefully.** Titles only, kept in memory. A secret is fetched only
 when you pick it, copied as *sensitive* (Omarchy's clipboard history skips
@@ -142,10 +143,33 @@ with `open`, `copy`, `paste` or `run` as the action. Both examples are in
 | **Search** | what shows before you type · remember the last search · the rows under every search |
 | **Search sources** | each one everywhere, behind its prefix, or off · the prefixes |
 | **Web** | DuckDuckGo, Google, Kagi, Startpage, Bing or your own URL · quicklinks · snippets |
-| **Files & projects** | folders, what to skip, hidden files, depth, recent files · project folders and what opens them |
+| **Files & projects** | folders, what to skip, hidden files, depth, recent files · project folders and what opens them · your manual |
 | **Commands** | shell commands in a terminal or the background · live exchange rates |
 | **1Password** | what Enter copies · clipboard clear time · account |
-| **Claude** | model · the folder it answers from |
+| **Claude** | model · the folder it answers from · the herdr space `Ctrl+Enter` goes to |
+
+### Your folder layout
+
+Three settings describe where your things live. The defaults fit a common
+layout; change them in *Files & projects* and *Claude*, or in the file:
+
+```json
+{
+  "projects": { "roots": ["~/Work/*/*", "~/Projects/*"] },
+  "manual":   { "files": ["~/.dotfiles/README.md", "~/.dotfiles/packages.d/README.md"] },
+  "claude":   { "folder": "~/Work/omarchy", "space": "omarchy" }
+}
+```
+
+| Setting | Default | What it is |
+|---|---|---|
+| `projects.roots` | `~/Projects/*`, `~/projects/*`, `~/Work/*`, `~/src/*`, `~/code/*` | globs: every folder they match is a project (`~/Work/*/*` for client/project) |
+| `manual.files` | `~/.dotfiles/README.md` (or `$DOTFILES/README.md`) | Markdown files that `help` searches by heading; the first one is *Manual* |
+| `claude.folder` | `~` | where *Ask Claude* runs; its `CLAUDE.md` is the context |
+| `claude.space` | empty | the herdr space `Ctrl+Enter` hands a question to; empty hides that action |
+
+herdr spaces come from herdr itself and from `~/.config/herdr/spaces.conf`
+(one `label folder [command]` per line), when you have one.
 
 ## How it works
 

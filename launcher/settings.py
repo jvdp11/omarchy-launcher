@@ -60,9 +60,13 @@ DEFAULTS = {
     },
     "calculator": {"currency": True},
     "shell": {"mode": "terminal"},  # terminal | background
-    "projects": {"roots": ["~/Work/*/*", "~/Projects/*"], "open": "terminal"},  # terminal | editor | files
+    # Folder layout: globs for the project folders, the Markdown files `help`
+    # searches, and the folder Claude answers from (its CLAUDE.md is the context).
+    "projects": {"roots": ["~/Projects/*", "~/projects/*", "~/Work/*", "~/src/*", "~/code/*"],
+                 "open": "terminal"},  # terminal | editor | files
+    "manual": {"files": [(os.environ.get("DOTFILES") or "~/.dotfiles") + "/README.md"]},
     "onepassword": {"account": "", "clearAfter": 30, "primary": "password"},  # password | username | otp
-    "claude": {"model": "sonnet", "folder": "~/Work/omarchy"},
+    "claude": {"model": "sonnet", "folder": "~", "space": ""},  # space: herdr space for Ctrl+Enter
     "quicklinks": DEFAULT_QUICKLINKS,
     "snippets": [
         {"name": "Today's date", "keyword": "date", "text": "{date}"},

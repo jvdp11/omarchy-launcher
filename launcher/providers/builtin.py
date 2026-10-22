@@ -138,9 +138,12 @@ class Builtin(Provider):
             toggle("files.hidden", "Include hidden files", s("files.hidden")),
             number("files.maxDepth", "Depth", s("files.maxDepth"), 1, 30, "How many folders deep"),
             toggle("files.recent", "Recent files in the normal search", s("files.recent")),
-            text("projects.roots", "Project folders", ", ".join(s("projects.roots", [])), "Globs, comma separated: ~/Work/*/*"),
+            text("projects.roots", "Project folders", ", ".join(s("projects.roots", [])),
+                 "Globs, comma separated: ~/Projects/* or ~/Work/*/* for client/project"),
             choice("projects.open", "Open a project in", s("projects.open"),
                    [("terminal", "Terminal"), ("editor", "Editor"), ("files", "File manager")]),
+            text("manual.files", "Manual", ", ".join(s("manual.files", [])),
+                 "Markdown files that help searches by heading, comma separated"),
             section("Commands"),
             choice("shell.mode", "Shell commands (>)", s("shell.mode"), [("terminal", "Run in a terminal"), ("background", "Run in the background")]),
             toggle("calculator.currency", "Live exchange rates", s("calculator.currency"),
@@ -152,7 +155,8 @@ class Builtin(Provider):
             text("onepassword.account", "Account", s("onepassword.account"), "Shorthand or sign-in address; empty for the default"),
             section("Claude"),
             choice("claude.model", "Model", s("claude.model"), [("sonnet", "Sonnet"), ("opus", "Opus"), ("haiku", "Haiku")]),
-            text("claude.folder", "Asks from", s("claude.folder"), "Its CLAUDE.md is the context: the Omarchy space by default"),
+            text("claude.folder", "Asks from", s("claude.folder"), "Its CLAUDE.md is the context; your home folder by default"),
+            text("claude.space", "herdr space", s("claude.space"), "Ctrl+Enter hands the question to this space; empty hides it"),
             section("Favourites and aliases"),
             {"type": "info", "label": f"{len(s('favourites', []))} favourites, {len(s('aliases', {}))} aliases",
              "hint": "Tab on any result: Add to favourites (Ctrl+P) or Set alias"},
@@ -196,7 +200,7 @@ class Builtin(Provider):
                     if value:
                         fallbacks.append(key.split(".", 1)[1])
                     continue
-                if key in ("files.roots", "files.exclude", "projects.roots"):
+                if key in ("files.roots", "files.exclude", "projects.roots", "manual.files"):
                     value = as_list(value)
                 elif key in ("general.width", "general.rows", "files.maxDepth", "onepassword.clearAfter"):
                     try:
