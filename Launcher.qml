@@ -101,6 +101,9 @@ Item {
   // each row's data is root.results[index].
   ListModel { id: resultModel }
 
+  // Ask Claude's conversation window; it outlives the overlay.
+  ChatWindow { id: chatWindow; launcher: root }
+
   readonly property var selected: results.length > 0 && selectedIndex >= 0 && selectedIndex < results.length ? results[selectedIndex] : null
   onSelectedChanged: actionsTimer.restart()
 
@@ -224,6 +227,8 @@ Item {
       root.actionsFor = msg.id
     } else if (msg.op === "do") {
       root.perform(msg.steps || [])
+    } else if (msg.op === "chat") {
+      chatWindow.onBackend(msg)
     } else if (msg.op === "stream") {
       if (!root.detail || root.detail.stream !== msg.stream) return
       var d = Object.assign({}, root.detail)
@@ -307,6 +312,8 @@ Item {
       } else if (st.type === "refresh") {
         root.actionsFor = ""
         if (root.page === "list") root.search()
+      } else if (st.type === "chat") {
+        chatWindow.ask(st.q)
       } else if (st.type === "launch-app") {
         root.launchApp(st.appId, st.name, st.action)
       } else if (st.type === "detail") {

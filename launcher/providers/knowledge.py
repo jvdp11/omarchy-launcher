@@ -97,30 +97,38 @@ class Claude(Provider):
             util.run_ok(["herdr", "workspace", "focus", _herdr_ws(space)], timeout=3)
             focus_herdr_window()
             return [toast(f"Question copied: paste it in the {space} space"), close()]
-        stream = self.ctx.new_stream()
-        threading.Thread(target=self._ask, args=(q, stream), daemon=True).start()
-        return [detail(q, "", fmt="markdown", stream=stream, icon="󰚩",
-                       actions=[action("copy", "Copy answer", "󰆏", "ctrl+c")])]
+        # The conversation lives in its own window (ChatWindow.qml), which sends
+        # the question back as {"op": "chat"} so follow-ups can resume it.
+        return [{"type": "chat", "q": q}, close()]
+
+    def chat(self, turn: str, q: str, session: str = "") -> None:
+        """Answer one turn of the chat window; a session id continues that conversation."""
+        threading.Thread(target=self._ask, args=(q, {"op": "chat", "turn": turn}, session), daemon=True).start()
 
     def cancel(self) -> None:
         with self._lock:
             if self._proc and self._proc.poll() is None:
                 self._proc.terminate()
 
-    def _ask(self, q: str, stream: str) -> None:
+    def _ask(self, q: str, tag: dict, session: str = "") -> None:
         self.cancel()
         folder = util.expand(self.settings.get("claude.folder", "~") or "~")
         argv = ["claude", "-p", q, "--model", self.settings.get("claude.model", "sonnet"),
                 "--output-format", "stream-json", "--verbose", "--include-partial-messages",
                 "--append-system-prompt", SYSTEM_PROMPT, "--allowedTools", *TOOLS]
-        emit = self.ctx.emit
-        emit({"op": "stream", "stream": stream, "status": "Thinking…"})
+        if session:
+            argv += ["--resume", session]
+
+        def emit(fields: dict) -> None:
+            self.ctx.emit({**tag, **fields})
+
+        emit({"status": "Thinking…"})
         try:
             proc = subprocess.Popen(argv, cwd=str(folder) if folder.is_dir() else str(util.HOME),
                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     text=True, start_new_session=True)
         except OSError as e:
-            emit({"op": "stream", "stream": stream, "text": f"Could not start claude: {e}", "done": True})
+            emit({"text": f"Could not start claude: {e}", "done": True, "status": ""})
             return
         with self._lock:
             self._proc = proc
@@ -132,16 +140,19 @@ class Claude(Provider):
             except ValueError:
                 continue
             kind = ev.get("type")
+            if ev.get("session_id") and ev["session_id"] != session:
+                session = ev["session_id"]
+                emit({"session": session})
             if kind == "stream_event":
                 inner = ev.get("event") or {}
                 delta = inner.get("delta") or {}
                 if inner.get("type") == "content_block_delta" and delta.get("type") == "text_delta":
                     answer += delta.get("text", "")
-                    emit({"op": "stream", "stream": stream, "text": sanitize_markdown(answer), "status": ""})
+                    emit({"text": sanitize_markdown(answer), "status": ""})
                 elif inner.get("type") == "content_block_start" and \
                         (inner.get("content_block") or {}).get("type") == "tool_use":
                     tool = (inner.get("content_block") or {}).get("name", "")
-                    emit({"op": "stream", "stream": stream, "status": f"Looking at your setup ({tool})…"})
+                    emit({"status": f"Looking at your setup ({tool})…"})
                 elif inner.get("type") == "message_start" and answer:
                     # A new turn after tool use: start the answer over.
                     answer += "\n\n"
@@ -151,8 +162,7 @@ class Claude(Provider):
         if proc.returncode != 0 and not (final or answer):
             err = (proc.stderr.read() if proc.stderr else "").strip().splitlines()
             final = "*Claude did not answer.* " + (err[-1] if err else "Is it logged in? Try `claude` in a terminal.")
-        emit({"op": "stream", "stream": stream, "text": sanitize_markdown(final or answer), "done": True,
-              "status": ""})
+        emit({"text": sanitize_markdown(final or answer), "done": True, "status": ""})
 
 
 def _herdr_ws(label: str) -> str:

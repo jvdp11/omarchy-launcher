@@ -9,12 +9,14 @@ From the overlay:
   {"op": "submit", "form": "settings", "values": {...}}
   {"op": "copy", "text": "…"}              copy text the overlay shows (an answer, output)
   {"op": "stop"}                           a streaming answer was closed
+  {"op": "chat", "turn": "1-0", "q": "…", "session": ""}   a question in the chat window
 
 To the overlay:
   {"op": "results", "seq": 7, "items": [...], "done": false}   (again as slow sources finish)
   {"op": "actions", "seq": 8, "actions": [...]}
   {"op": "do", "steps": [...]}             what to do after a run or submit
   {"op": "stream", "stream": "s1", "text": "…", "status": "…", "done": true}
+  {"op": "chat", "turn": "1-0", "text": "…", "status": "…", "session": "…", "done": true}
 """
 
 from __future__ import annotations
@@ -474,6 +476,9 @@ class Server:
             util.copy(str(msg.get("text") or ""))
         elif op == "stop":
             self.by_id["claude"].cancel()
+        elif op == "chat":
+            self.by_id["claude"].chat(str(msg.get("turn") or ""), str(msg.get("q") or ""),
+                                      str(msg.get("session") or ""))
 
     def serve(self, stdin=sys.stdin) -> None:
         self.emit({"op": "hello"})

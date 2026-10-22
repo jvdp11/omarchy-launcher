@@ -96,11 +96,23 @@ prefix, under *Search sources*.
 
 ## Highlights
 
-**Ask Claude.** Type a question, pick *Ask Claude*, and the answer streams into
-the launcher. It runs from a folder you choose (your home folder by default), so
-point it at one whose `CLAUDE.md` describes your setup and it knows your rules.
-It is read-only: it can look, never change. Name a herdr space in the settings
-and `Ctrl+Enter` hands the question to it when you want it *done*.
+**Ask Claude.** Type a question and pick *Ask Claude*: the launcher closes and
+the conversation opens in a window of its own, on top of your other windows.
+The answer streams in, and you keep asking follow-ups in the same conversation.
+Every answer has *Copy answer* and every code block its own *Copy*; you can
+also select text. `Ctrl+Shift+C` copies the last answer, `Ctrl+N` starts over,
+`Esc` closes it (the conversation stays until you start a new one).
+
+It runs from a folder you choose (your home folder by default), so point it at
+one whose `CLAUDE.md` describes your setup and it knows your rules. It is
+read-only: it can look, never change. Name a herdr space in the settings and
+`Ctrl+Enter` hands the question to it when you want it *done*.
+
+Hyprland tiles new windows, so float this one in `~/.config/hypr/hyprland.lua`:
+
+```lua
+o.window({ class = "^org.quickshell$", title = "^Ask Claude$" }, { float = true, size = { 960, 720 }, center = true })
+```
 
 **1Password, carefully.** Titles only, kept in memory. A secret is fetched only
 when you pick it, copied as *sensitive* (Omarchy's clipboard history skips
@@ -192,6 +204,7 @@ python3 -m unittest discover -s tests
 |---|---|
 | `Launcher.qml` | the overlay |
 | `ResultRow.qml` · `ActionsPopup.qml` · `DetailView.qml` · `FormView.qml` · `KeyHint.qml` | its parts |
+| `ChatWindow.qml` | the Ask Claude conversation window |
 | `bin/launcher` | the backend: `serve`, `query TEXT`, `open [TEXT]` |
 | `launcher/providers/` | one module per kind of result |
 | `commands/` | example script commands |
