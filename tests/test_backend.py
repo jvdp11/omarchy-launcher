@@ -211,6 +211,80 @@ class SecurityTest(unittest.TestCase):
                 self.assertNotIn("Bank", f.read())
 
 
+class ReviewRegressionTest(unittest.TestCase):
+    def script(self, **kw):
+        return dict(id="scripts:demo", title="Demo", icon="", _path="/fake/demo", _dir="/tmp",
+                    _mode="silent", _args=[], _confirm=True, _prefix="demo", **kw)
+
+    def test_confirmation_is_required_and_one_use(self):
+        from unittest import mock
+        from launcher import util
+        provider = scripts.Scripts(_Ctx())
+        with mock.patch.object(util, "spawn") as spawn:
+            steps = provider.run(self.script(), "default", None)
+            spawn.assert_not_called()
+            self.assertEqual(steps[0]["type"], "form")
+            form_id = steps[0]["form"]["id"]
+            provider.submit(form_id, {})
+            spawn.assert_called_once_with(["/fake/demo"], cwd="/tmp")
+            provider.submit(form_id, {})
+            self.assertEqual(spawn.call_count, 1)
+
+    def test_confirmation_keeps_collected_arguments(self):
+        from unittest import mock
+        from launcher import util
+        provider = scripts.Scripts(_Ctx())
+        script = self.script(); script["_args"] = [{"placeholder": "Value"}]
+        with mock.patch.object(util, "spawn") as spawn:
+            form_id = provider.run(script, "default", "a; echo unsafe")[0]["form"]["id"]
+            spawn.assert_not_called()
+            provider.submit(form_id, {})
+            spawn.assert_called_once_with(["/fake/demo", "a; echo unsafe"], cwd="/tmp")
+
+    def test_expired_confirmation_does_not_execute(self):
+        from unittest import mock
+        from launcher import util
+        provider = scripts.Scripts(_Ctx())
+        with mock.patch.object(scripts.time, "monotonic", return_value=100):
+            form_id = provider.run(self.script(), "default", None)[0]["form"]["id"]
+        with mock.patch.object(scripts.time, "monotonic", return_value=401), mock.patch.object(util, "spawn") as spawn:
+            provider.submit(form_id, {})
+            spawn.assert_not_called()
+
+    def test_list_script_cannot_run_before_confirmation(self):
+        from unittest import mock
+        provider = scripts.Scripts(_Ctx())
+        script = self.script(); script["_mode"] = "list"
+        with mock.patch.object(scripts.subprocess, "run") as run:
+            self.assertTrue(provider.list_search(script, "query"))
+            run.assert_not_called()
+            form_id = provider.run(script, "default", None)[0]["form"]["id"]
+            self.assertEqual(provider.submit(form_id, {})[0]["type"], "query")
+            run.return_value.stdout = ""
+            provider.list_search(script, "query")
+            run.assert_called_once()
+
+    def test_clipboard_snapshot_survives_history_reordering(self):
+        from unittest import mock
+        from pathlib import Path
+        from launcher import util
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "clipboard.json"
+            old = {"type": "text", "text": "selected text"}
+            path.write_text(json.dumps([old]))
+            provider = text.Clipboard(_Ctx())
+            with mock.patch.object(text, "CLIP_HISTORY", path):
+                selected = provider._entries()[0]
+                path.write_text(json.dumps([{"type": "text", "text": "new text"}, old]))
+                reordered = provider._entries()[1]
+                self.assertEqual(selected["id"], reordered["id"])
+                with mock.patch.object(util, "paste") as paste, mock.patch.object(util, "copy") as copy:
+                    provider.run(selected, "default", None)
+                    provider.run(selected, "copy", None)
+                    paste.assert_called_once_with("selected text")
+                    copy.assert_called_once_with("selected text")
+
+
 class _Ctx:
     def __init__(self):
         self.settings = Settings(os.devnull)

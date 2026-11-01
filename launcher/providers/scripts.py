@@ -24,8 +24,10 @@ import json
 import os
 import re
 import subprocess
+import secrets
+import time
 
-from . import Provider, action, close, detail, item, toast
+from . import Provider, action, close, detail, form, item, toast
 from .. import util
 
 HEADER = re.compile(r"^\s*(?:#|//|--|;)\s*@(?:raycast|launcher)\.(\w+)\s+(.*?)\s*$")
@@ -77,6 +79,8 @@ class Scripts(Provider):
         self.items: list[dict] = []
         self.lists: list[dict] = []
         self.pending_args: dict[str, list[str]] = {}
+        self.pending_confirmations: dict[str, tuple] = {}
+        self.confirmed_lists: dict[str, float] = {}
 
     def refresh(self):
         items, lists = [], []
@@ -120,6 +124,9 @@ class Scripts(Provider):
         return {l["_prefix"]: l for l in self.lists if l["_prefix"]}
 
     def list_search(self, script: dict, q: str) -> list[dict]:
+        if script.get("_confirm") and self.confirmed_lists.get(script["_path"], 0) < time.monotonic():
+            return [dict(script, arg=None, score=1000,
+                         subtitle="Confirm this script before searching it")]
         try:
             out = subprocess.run([script["_path"], q], capture_output=True, text=True, timeout=5,
                                  cwd=script["_dir"], start_new_session=True)
@@ -158,7 +165,9 @@ class Scripts(Provider):
             util.open_target(it["_dir"])
             return [close()]
         if it.get("_mode") == "list":
-            return [{"type": "query", "q": (it["_prefix"] + " ") if it["_prefix"] else ""}]
+            if it.get("_confirm"):
+                return self._confirmation(it, [])
+            return self._execute(it, [])
         # Collect the arguments one prompt at a time.
         args = self.pending_args.get(it["id"], [])
         if it["_args"]:
@@ -176,6 +185,35 @@ class Scripts(Provider):
                 self.pending_args.pop(it["id"], None)
                 return [toast(f"{it['title']} needs {spec[[i for i, a in enumerate(args) if not a][0]].get('placeholder', 'an argument')}", True)]
         self.pending_args.pop(it["id"], None)
+        if it.get("_confirm"):
+            return self._confirmation(it, args)
+        return self._execute(it, args)
+
+    def _confirmation(self, it, args):
+        now = time.monotonic()
+        self.pending_confirmations = {k: v for k, v in self.pending_confirmations.items() if v[2] > now}
+        if len(self.pending_confirmations) >= 32:
+            self.pending_confirmations.pop(next(iter(self.pending_confirmations)))
+        token = secrets.token_urlsafe(24)
+        self.pending_confirmations[token] = (dict(it), list(args), now + 300)
+        note = "Allow searches through this list script for five minutes." if it.get("_mode") == "list" else "Run this script with the arguments shown below."
+        return [form("confirm-script:" + token, "Run " + it["title"] + "?", [
+            {"type": "info", "label": note},
+            {"type": "info", "label": it["_path"]},
+            {"type": "info", "label": "Arguments: " + repr(args)},
+        ], submit="Run", icon=it.get("icon", ""))]
+
+    def submit(self, form_id, values):
+        token = form_id.partition(":")[2]
+        pending = self.pending_confirmations.pop(token, None)
+        if pending is None or pending[2] < time.monotonic():
+            return [toast("Confirmation expired; select the script again", True)]
+        return self._execute(pending[0], pending[1])
+
+    def _execute(self, it, args):
+        if it.get("_mode") == "list":
+            self.confirmed_lists[it["_path"]] = time.monotonic() + 300
+            return [{"type": "query", "q": (it["_prefix"] + " ") if it["_prefix"] else ""}]
         argv = [it["_path"]] + args
         mode = it.get("_mode", "silent")
         if mode == "silent":

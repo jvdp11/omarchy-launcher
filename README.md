@@ -187,3 +187,11 @@ or clipboard contents.
 ## License
 
 MIT © jvdp11
+
+### Script confirmation and clipboard selection
+
+Scripts declaring `@launcher.needsConfirmation true` (or the Raycast spelling) open a confirmation form showing their path and arguments. Choose **Run** or press **Ctrl+S** to execute; Escape cancels. Confirmation tokens expire after five minutes and can only be submitted once. A list script with this flag requires confirmation before its first search and grants searches through that script for five minutes.
+
+Clipboard text actions use the selected text snapshot and a content-based result ID, so a new clipboard entry cannot change what a selected row pastes.
+
+Offline regression checks: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests`.

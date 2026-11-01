@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -37,7 +38,7 @@ class Clipboard(Provider):
                 text = e["text"]
                 one_line = " ".join(text.split())
                 lines = text.count("\n") + 1
-                out.append(item("clipboard", str(i), one_line[:200] or "(blank)",
+                out.append(item("clipboard", hashlib.sha256(text.encode()).hexdigest(), one_line[:200] or "(blank)",
                                 subtitle=f"{lines} lines · {len(text)} characters" if lines > 1 else f"{len(text)} characters",
                                 icon="󰅍", accessory="Clipboard", recordable=False, _index=i, _text=text))
             elif isinstance(e.get("path"), str) and os.path.exists(e["path"]):
@@ -75,7 +76,6 @@ class Clipboard(Provider):
 
     def run(self, it, aid, arg):
         helper = os.path.join(util.OMARCHY_PATH, "bin")
-        idx = str(it["_index"])
         if aid == "manager":
             util.spawn(["omarchy-shell", "shell", "summon", "omarchy.clipboard"])
             return [close()]
@@ -89,9 +89,12 @@ class Clipboard(Provider):
                 argv.append("--copy-only")
             util.spawn(argv + [it["_mime"], it["_path"]])
             return [close()]
-        argv = [os.path.join(helper, "omarchy-clipboard-paste-text")]
-        argv += ["--copy-only"] if aid == "copy" else ["--shift-insert"]
-        _later(argv + ["--history-index", idx])
+        # Use the selected snapshot: clipboard history may reorder while the
+        # overlay is open or before the delayed paste runs.
+        if aid == "copy":
+            util.copy(it["_text"])
+        else:
+            util.paste(it["_text"])
         return [close()]
 
 

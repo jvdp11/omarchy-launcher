@@ -8,6 +8,7 @@ import qs.Ui
 // Field types: section, info, text, textarea, number, toggle, choice, link.
 Item {
   id: view
+  Keys.onPressed: function(event) { if (launcher) launcher.handleKey(event) }
 
   property var launcher: null
   readonly property var form: launcher ? launcher.form : null
@@ -27,6 +28,7 @@ Item {
     values = v
     cursor = -1
     move(1)
+    if (cursor < 0) forceActiveFocus()
   }
 
   function setValue(key, value) {

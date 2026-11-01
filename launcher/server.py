@@ -445,7 +445,7 @@ class Server:
                 self.settings.set_many({"aliases": aliases})
                 steps = [toast(f"Alias “{alias}” saved" if alias else "Alias removed"), set_query(alias)]
             else:
-                owner = {"snippet": "snippets", "quicklink": "quicklinks"}.get(form_id.split(":", 1)[0], "launcher")
+                owner = {"snippet": "snippets", "quicklink": "quicklinks", "confirm-script": "scripts"}.get(form_id.split(":", 1)[0], "launcher")
                 steps = self.by_id[owner].submit(form_id, values if isinstance(values, dict) else {})
         except Exception as e:
             traceback.print_exc(file=sys.stderr)

@@ -436,6 +436,10 @@ Item {
       }
     } else if (event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)) {
       root.send({ op: "run", id: "launcher:settings", action: "default", arg: null })
+    } else if (root.page === "form") {
+      if ((event.modifiers & Qt.ControlModifier) &&
+          (event.key === Qt.Key_S || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) formView.submit()
+      else return
     } else if (root.page === "detail") {
       var hitD = root.actionForShortcut(sc)
       if (hitD) root.runAction(hitD)
