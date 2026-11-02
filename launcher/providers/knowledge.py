@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import threading
@@ -11,11 +10,8 @@ import threading
 from . import Provider, action, close, detail, item, toast
 from .. import util
 
-DOTFILES = util.expand(os.environ.get("DOTFILES") or "~/.dotfiles")
-DOCS = [DOTFILES / "README.md", DOTFILES / "packages.d/README.md"]
-
 SYSTEM_PROMPT = (
-    "You answer questions about the user's Omarchy desktop, ~/.dotfiles and setup from a launcher popup. "
+    "You answer questions about the user's Omarchy desktop, dotfiles and setup from a launcher popup. "
     "Be short and concrete: the command, file or setting they need, then one or two lines of why. "
     "Markdown without images or HTML. Never change files."
 )
@@ -78,48 +74,61 @@ class Claude(Provider):
         return [self.fallback(q, 990)]
 
     def fallback(self, q: str, score: int = 0) -> dict:
-        return item("claude", "ask", f"Ask Claude: {q}", subtitle="Answers from your Omarchy space (read-only)",
+        return item("claude", "ask", f"Ask Claude: {q}", subtitle="Answers about your setup (read-only)",
                     icon="󰚩", accessory="Claude", recordable=False, score=score, _q=q)
 
     def actions(self, it):
         if it.get("_hint"):
             return []
-        return [action("default", "Ask", "󰚩"), action("space", "Ask in the omarchy space (herdr)", "", "ctrl+enter")]
+        acts = [action("default", "Ask", "󰚩")]
+        space = self.settings.get("claude.space", "")
+        if space and util.have("herdr"):
+            acts.append(action("space", f"Ask in the {space} space (herdr)", "", "ctrl+enter"))
+        return acts
 
     def run(self, it, aid, arg):
         if it.get("_hint"):
             return []
         q = it["_q"]
         if aid == "space":
+            space = self.settings.get("claude.space", "")
             util.copy(q)
             from .work import focus_herdr_window
-            util.run_ok(["herdr", "workspace", "focus", _omarchy_ws()], timeout=3)
+            util.run_ok(["herdr", "workspace", "focus", _herdr_ws(space)], timeout=3)
             focus_herdr_window()
-            return [toast("Question copied: paste it in the omarchy space"), close()]
-        stream = self.ctx.new_stream()
-        threading.Thread(target=self._ask, args=(q, stream), daemon=True).start()
-        return [detail(q, "", fmt="markdown", stream=stream, icon="󰚩",
-                       actions=[action("copy", "Copy answer", "󰆏", "ctrl+c")])]
+            return [toast(f"Question copied: paste it in the {space} space"), close()]
+        # The conversation lives in its own window (ChatWindow.qml), which sends
+        # the question back as {"op": "chat"} so follow-ups can resume it.
+        return [{"type": "chat", "q": q}, close()]
+
+    def chat(self, turn: str, q: str, session: str = "") -> None:
+        """Answer one turn of the chat window; a session id continues that conversation."""
+        threading.Thread(target=self._ask, args=(q, {"op": "chat", "turn": turn}, session), daemon=True).start()
 
     def cancel(self) -> None:
         with self._lock:
             if self._proc and self._proc.poll() is None:
                 self._proc.terminate()
 
-    def _ask(self, q: str, stream: str) -> None:
+    def _ask(self, q: str, tag: dict, session: str = "") -> None:
         self.cancel()
-        folder = util.expand(self.settings.get("claude.folder", "~/Work/omarchy"))
+        folder = util.expand(self.settings.get("claude.folder", "~") or "~")
         argv = ["claude", "-p", q, "--model", self.settings.get("claude.model", "sonnet"),
                 "--output-format", "stream-json", "--verbose", "--include-partial-messages",
                 "--append-system-prompt", SYSTEM_PROMPT, "--allowedTools", *TOOLS]
-        emit = self.ctx.emit
-        emit({"op": "stream", "stream": stream, "status": "Thinking…"})
+        if session:
+            argv += ["--resume", session]
+
+        def emit(fields: dict) -> None:
+            self.ctx.emit({**tag, **fields})
+
+        emit({"status": "Thinking…"})
         try:
             proc = subprocess.Popen(argv, cwd=str(folder) if folder.is_dir() else str(util.HOME),
                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     text=True, start_new_session=True)
         except OSError as e:
-            emit({"op": "stream", "stream": stream, "text": f"Could not start claude: {e}", "done": True})
+            emit({"text": f"Could not start claude: {e}", "done": True, "status": ""})
             return
         with self._lock:
             self._proc = proc
@@ -131,16 +140,19 @@ class Claude(Provider):
             except ValueError:
                 continue
             kind = ev.get("type")
+            if ev.get("session_id") and ev["session_id"] != session:
+                session = ev["session_id"]
+                emit({"session": session})
             if kind == "stream_event":
                 inner = ev.get("event") or {}
                 delta = inner.get("delta") or {}
                 if inner.get("type") == "content_block_delta" and delta.get("type") == "text_delta":
                     answer += delta.get("text", "")
-                    emit({"op": "stream", "stream": stream, "text": sanitize_markdown(answer), "status": ""})
+                    emit({"text": sanitize_markdown(answer), "status": ""})
                 elif inner.get("type") == "content_block_start" and \
                         (inner.get("content_block") or {}).get("type") == "tool_use":
                     tool = (inner.get("content_block") or {}).get("name", "")
-                    emit({"op": "stream", "stream": stream, "status": f"Looking at your setup ({tool})…"})
+                    emit({"status": f"Looking at your setup ({tool})…"})
                 elif inner.get("type") == "message_start" and answer:
                     # A new turn after tool use: start the answer over.
                     answer += "\n\n"
@@ -150,15 +162,14 @@ class Claude(Provider):
         if proc.returncode != 0 and not (final or answer):
             err = (proc.stderr.read() if proc.stderr else "").strip().splitlines()
             final = "*Claude did not answer.* " + (err[-1] if err else "Is it logged in? Try `claude` in a terminal.")
-        emit({"op": "stream", "stream": stream, "text": sanitize_markdown(final or answer), "done": True,
-              "status": ""})
+        emit({"text": sanitize_markdown(final or answer), "done": True, "status": ""})
 
 
-def _omarchy_ws() -> str:
+def _herdr_ws(label: str) -> str:
     raw = util.run(["herdr", "workspace", "list"], timeout=3)
     try:
         for w in json.loads(raw)["result"]["workspaces"]:
-            if w.get("label") == "omarchy":
+            if w.get("label") == label:
                 return str(w.get("workspace_id"))
     except (ValueError, KeyError, TypeError):
         pass
@@ -199,26 +210,30 @@ def parse_sections(path) -> list[dict]:
 
 class Manual(Provider):
     id = "manual"
-    name = "Dotfiles manual"
+    name = "Manual"
     prefix = "help"
-    description = "The sections of ~/.dotfiles/README.md (what dotfiles-help shows)"
+    description = "The sections of your own Markdown manual (Settings › Files and projects)"
 
     def __init__(self, ctx):
         super().__init__(ctx)
         self.items: list[dict] = []
         self._mtimes: tuple = ()
 
+    def docs(self) -> list:
+        return [util.expand(f) for f in self.settings.get("manual.files", []) if str(f).strip()]
+
     def available(self):
-        return DOCS[0].exists()
+        return any(p.exists() for p in self.docs())
 
     def refresh(self):
-        mtimes = tuple(p.stat().st_mtime if p.exists() else 0 for p in DOCS)
+        docs = self.docs()
+        mtimes = tuple((str(p), p.stat().st_mtime if p.exists() else 0) for p in docs)
         if mtimes == self._mtimes:
             return
         items = []
-        for doc in DOCS:
+        for doc in docs:
             for s in parse_sections(doc):
-                where = "Manual" if doc == DOCS[0] else doc.parent.name
+                where = "Manual" if doc == docs[0] else doc.parent.name
                 sub = f"{where} › {s['parent']}" if s["parent"] else where
                 items.append(item("manual", f"{doc.name}:{s['title']}", s["title"], subtitle=sub, icon="󰈙",
                                   accessory="Manual", _keywords=[s["body"][:400]], _body=s["body"],
@@ -243,9 +258,13 @@ class Manual(Provider):
                 return it
         return None
 
+    def doc_actions(self) -> list:
+        # dotfiles-help is a reader of its own some setups have; offered only there.
+        acts = [action("help", "Open in Dotfiles Help", "󰋖", "ctrl+enter")] if util.have("dotfiles-help") else []
+        return acts + [action("edit", "Edit the manual", "󰏫", "ctrl+e")]
+
     def actions(self, it):
-        return [action("default", "Read", "󰈙"), action("help", "Open in Dotfiles Help", "󰋖", "ctrl+enter"),
-                action("edit", "Edit the manual", "󰏫", "ctrl+e")]
+        return [action("default", "Read", "󰈙")] + self.doc_actions()
 
     def run(self, it, aid, arg):
         if aid == "help":
@@ -255,5 +274,4 @@ class Manual(Provider):
             util.editor(it["_doc"])
             return [close()]
         return [detail(it["title"], sanitize_markdown(it["_body"]), fmt="markdown", icon="󰈙",
-                       actions=[action("help", "Open in Dotfiles Help", "󰋖", "ctrl+enter"),
-                                action("edit", "Edit the manual", "󰏫", "ctrl+e")])]
+                       actions=self.doc_actions())]

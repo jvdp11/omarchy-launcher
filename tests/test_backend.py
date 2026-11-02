@@ -152,6 +152,21 @@ class SettingsTest(unittest.TestCase):
             self.assertNotIn("rows", saved.get("general", {}))   # default again → dropped
             self.assertEqual(saved["web"]["engine"], "kagi")
 
+    def test_manual_reads_the_configured_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            doc = os.path.join(d, "notes.md")
+            with open(doc, "w") as f:
+                f.write("# Notes\n\n## Backups\n\nRestic every night.\n")
+            path = os.path.join(d, "s.json")
+            with open(path, "w") as f:
+                json.dump({"manual": {"files": [doc]}}, f)
+            ctx = _Ctx()
+            ctx.settings = Settings(path)
+            manual = knowledge.Manual(ctx)
+            self.assertTrue(manual.available())
+            manual.refresh()
+            self.assertEqual([it["title"] for it in manual.items], ["Backups"])
+
 
 class ServerTest(unittest.TestCase):
     def test_prefix_scoping_and_fallbacks(self):
