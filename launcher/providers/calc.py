@@ -29,10 +29,40 @@ WORDY = re.compile(r"^[a-zA-Z\s]+$")
 DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}:\d{2}")
 
 
+def _commas(expr: str) -> str:
+    """A comma between digits is a decimal comma ("1,5"), except where it separates
+    the arguments of a function call ("round(2.5, 1)", "log(8,2)"), or groups
+    thousands in a number like 1,000,000 (two groups or more)."""
+    expr = re.sub(r"\b\d{1,3}(?:,\d{3}){2,}\b", lambda m: m.group(0).replace(",", ""), expr)
+    out, calls = [], []          # calls: for each open "(", whether it opens a function call
+    for i, ch in enumerate(expr):
+        if ch == "(":
+            calls.append(bool(re.search(r"[A-Za-z_]\w*\s*$", expr[:i])))
+        elif ch == ")" and calls:
+            calls.pop()
+        elif ch == "," and not (calls and calls[-1]):
+            if 0 < i < len(expr) - 1 and expr[i - 1].isdigit() and expr[i + 1].isdigit():
+                ch = "."
+        out.append(ch)
+    return "".join(out)
+
+
+MAX_BITS = 100_000   # results larger than this are refused (a power tower would take minutes and gigabytes)
+
+
+def _power(left, right):
+    if right > 0 and left not in (0, 1, -1):
+        bits = math.log2(abs(left)) * right if abs(left) > 1 else 0
+        if bits > MAX_BITS or right > 1_000_000:
+            raise ValueError("result too large")
+    return left ** right
+
+
 def safe_eval(expr: str):
     """Arithmetic only: numbers, + - * / // % ^ **, parentheses and math functions."""
-    expr = expr.replace("^", "**").replace("×", "*").replace("÷", "/").replace(",", ".")
-    expr = re.sub(r"(\d+(?:\.\d+)?)\s*%", r"(\1/100)", expr)
+    expr = _commas(expr.replace("^", "**").replace("×", "*").replace("÷", "/"))
+    # "20%" and "50 * 10%" are percentages; "10 % 3" is the remainder.
+    expr = re.sub(r"(\d+(?:\.\d+)?)\s*%(?!\s*[\d(.A-Za-z])", r"(\1/100)", expr)
     tree = ast.parse(expr, mode="eval")
 
     def ev(node):
@@ -42,8 +72,8 @@ def safe_eval(expr: str):
             return node.value
         if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
             left, right = ev(node.left), ev(node.right)
-            if isinstance(node.op, ast.Pow) and abs(right) > 1000:
-                raise ValueError("exponent too large")
+            if isinstance(node.op, ast.Pow):
+                return _power(left, right)
             return _OPS[type(node.op)](left, right)
         if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
             return _OPS[type(node.op)](ev(node.operand))
@@ -110,12 +140,14 @@ class Calculator(Provider):
             # -e: fetch fresh exchange rates (once a day; qalc caches them).
             argv.append("-e")
             self._rates_checked = time.time()
+        # A leading space keeps a query like "-v" from reading as one of qalc's options.
         try:
-            out = subprocess.run(argv + [q], capture_output=True, text=True, timeout=6 if "-e" in argv else 2.5, start_new_session=True)
+            code, stdout, _ = util.communicate(argv + [" " + q if q.startswith("-") else q],
+                                               timeout=6 if "-e" in argv else 2.5)
         except (OSError, subprocess.SubprocessError):
             return None
-        text = out.stdout.strip().splitlines()
-        if out.returncode != 0 or not text:
+        text = stdout.strip().splitlines()
+        if code != 0 or not text:
             return None
         res = text[-1].strip()
         if not res or res.lower().startswith(("error", "warning")) or res == q:

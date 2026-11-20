@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import urllib.parse
 
-from . import Provider, action, close, form, item, refresh, set_query, toast
+from . import Provider, action, close, entry_index, form, item, refresh, set_query, stable_entries, toast
 from .. import util
 from ..settings import ENGINES
 
@@ -36,7 +36,10 @@ class Web(Provider):
         name, _ = engine(self.settings)
         out = [item("web", "search", f"Search {name} for “{q}”", icon="󰖟", accessory="Web",
                     recordable=False, score=950, _q=q)]
-        if "." in q and " " not in q and not q.startswith("."):
+        # Something like a web address: open it. Only http(s); "file://" or a custom
+        # scheme typed here would hand xdg-open whatever it points at.
+        if "." in q and " " not in q and not q.startswith(".") and \
+                ("://" not in q or q.lower().startswith(("http://", "https://"))):
             out.insert(0, item("web", "open", f"Open {q}", icon="󰌹", accessory="Web", recordable=False,
                                score=960, _url=q if "://" in q else "https://" + q))
         return out
@@ -66,14 +69,14 @@ class Quicklinks(Provider):
 
     def _items(self):
         out = []
-        for i, ql in enumerate(self.settings.get("quicklinks", [])):
+        for ql in stable_entries(self.settings, "quicklinks", "quicklinks", lambda e: str(e.get("name") or e.get("url"))):
             if not isinstance(ql, dict) or not ql.get("url"):
                 continue
             name = str(ql.get("name") or ql["url"])
             kw = str(ql.get("keyword") or "")
             needs = "{query}" in ql["url"]
-            out.append(item("quicklinks", f"{i}:{name}", name, subtitle=str(ql["url"]), icon="󰌷",
-                            accessory=kw or "Quicklink", _keywords=[kw] if kw else [], _index=i,
+            out.append(item("quicklinks", ql["id"], name, subtitle=str(ql["url"]), icon="󰌷",
+                            accessory=kw or "Quicklink", _keywords=[kw] if kw else [], _eid=ql["id"],
                             _url=str(ql["url"]), _kw=kw,
                             arg={"placeholder": "Search " + name} if needs else None))
         return out
@@ -86,7 +89,9 @@ class Quicklinks(Provider):
         head, _, rest = qs.partition(" ")
         for it in items:
             if it.get("_kw") and head.lower() == it["_kw"].lower() and rest and it.get("arg"):
-                filled = dict(it, title=f"{it['title']}: {rest}", score=985, recordable=False, _filled=rest)
+                # An id of its own: the filled-in copy must never stand in for the quicklink itself.
+                filled = dict(it, id=it["id"] + ":filled", title=f"{it['title']}: {rest}", score=985,
+                              recordable=False, _filled=rest)
                 filled.pop("arg", None)
                 out.append(filled)
         for it in self.rank(qs, items):
@@ -115,8 +120,12 @@ class Quicklinks(Provider):
 
     def run(self, it, aid, arg):
         if it.get("_new") or aid == "edit":
-            ql = {} if it.get("_new") else self.settings.get("quicklinks", [])[it["_index"]]
-            return [form(f"quicklink:{'new' if it.get('_new') else it['_index']}",
+            links = self.settings.get("quicklinks", [])
+            n = -1 if it.get("_new") else entry_index(links, it.get("_eid", ""))
+            if not it.get("_new") and n < 0:
+                return [toast("That quicklink is gone", True), refresh()]
+            ql = {} if it.get("_new") else links[n]
+            return [form(f"quicklink:{'new' if it.get('_new') else it['_eid']}",
                          "Create quicklink" if it.get("_new") else "Edit quicklink", [
                              {"key": "name", "label": "Name", "type": "text", "value": ql.get("name", "")},
                              {"key": "url", "label": "URL", "type": "text", "value": ql.get("url", ""),
@@ -126,9 +135,11 @@ class Quicklinks(Provider):
                          ], icon="󰌷")]
         if aid == "delete":
             links = list(self.settings.get("quicklinks", []))
-            if 0 <= it["_index"] < len(links):
-                links.pop(it["_index"])
-                self.settings.set_many({"quicklinks": links})
+            n = entry_index(links, it.get("_eid", ""))
+            if n < 0:
+                return [toast("That quicklink is gone", True), refresh()]
+            links.pop(n)
+            self.settings.set_many({"quicklinks": links})
             return [toast("Deleted " + it["title"]), refresh()]
         query = it.get("_filled") if it.get("_filled") is not None else (arg or "")
         url = fill(it["_url"], query) if "{query}" in it["_url"] else it["_url"]
@@ -149,8 +160,12 @@ class Quicklinks(Provider):
                  "url": url}
         links = list(self.settings.get("quicklinks", []))
         if which == "new":
-            links.append(entry)
+            import uuid
+            links.append(dict(entry, id=uuid.uuid4().hex[:12]))
         else:
-            links[int(which)] = entry
+            n = entry_index(links, which)
+            if n < 0:
+                return [toast("That quicklink is gone", True)]
+            links[n] = dict(entry, id=which)
         self.settings.set_many({"quicklinks": links})
         return [toast("Saved " + entry["name"]), set_query("ql ")]

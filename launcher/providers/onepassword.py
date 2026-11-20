@@ -26,7 +26,8 @@ CATEGORY_ICONS = {"LOGIN": "󰌆", "PASSWORD": "󰌆", "API_CREDENTIAL": "󰯄",
 
 def op_run(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
     """op in the backend's own session, the only commands that run there."""
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    return subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout,
+                          stdin=subprocess.DEVNULL)
 
 
 def op_argv(settings, *args) -> list[str]:

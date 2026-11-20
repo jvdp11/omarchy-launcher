@@ -9,7 +9,7 @@ import os
 import re
 import uuid
 
-from . import Provider, action, close, form, item, refresh, set_query, toast
+from . import Provider, action, close, entry_index, form, item, refresh, set_query, stable_entries, toast
 from .. import match, util
 
 CLIP_HISTORY = util.HOME / ".local/state/omarchy/clipboard-history.json"
@@ -194,14 +194,14 @@ class Snippets(Provider):
     def _items(self):
         out = [item("snippets", "new", "Create snippet", subtitle="Save text to paste with a few keys",
                     icon="󰐕", accessory="Snippet", recordable=False, _new=True)]
-        for i, sn in enumerate(self.settings.get("snippets", [])):
+        for sn in stable_entries(self.settings, "snippets", "snippets", lambda e: str(e.get("name") or str(e.get("text", ""))[:40])):
             if not isinstance(sn, dict) or not sn.get("text"):
                 continue
             name = str(sn.get("name") or sn["text"][:40])
             kw = str(sn.get("keyword") or "")
             preview = " ".join(str(sn["text"]).split())[:120]
-            out.append(item("snippets", f"{i}:{name}", name, subtitle=preview, icon="󰅪",
-                            accessory=kw or "Snippet", _keywords=[kw] if kw else [], _index=i,
+            out.append(item("snippets", sn["id"], name, subtitle=preview, icon="󰅪",
+                            accessory=kw or "Snippet", _keywords=[kw] if kw else [], _eid=sn["id"],
                             _text=str(sn["text"]), _kw=kw))
         return out
 
@@ -234,8 +234,12 @@ class Snippets(Provider):
 
     def run(self, it, aid, arg):
         if it.get("_new") or aid == "edit":
-            sn = {} if it.get("_new") else self.settings.get("snippets", [])[it["_index"]]
-            return [form(f"snippet:{'new' if it.get('_new') else it['_index']}",
+            snippets = self.settings.get("snippets", [])
+            n = -1 if it.get("_new") else entry_index(snippets, it.get("_eid", ""))
+            if not it.get("_new") and n < 0:
+                return [toast("That snippet is gone", True), refresh()]
+            sn = {} if it.get("_new") else snippets[n]
+            return [form(f"snippet:{'new' if it.get('_new') else it['_eid']}",
                          "Create snippet" if it.get("_new") else "Edit snippet", [
                              {"key": "name", "label": "Name", "type": "text", "value": sn.get("name", "")},
                              {"key": "keyword", "label": "Keyword", "type": "text", "value": sn.get("keyword", ""),
@@ -245,11 +249,18 @@ class Snippets(Provider):
                          ], icon="󰅪")]
         if aid == "delete":
             snippets = list(self.settings.get("snippets", []))
-            if 0 <= it["_index"] < len(snippets):
-                snippets.pop(it["_index"])
-                self.settings.set_many({"snippets": snippets})
+            n = entry_index(snippets, it.get("_eid", ""))
+            if n < 0:
+                return [toast("That snippet is gone", True), refresh()]
+            snippets.pop(n)
+            self.settings.set_many({"snippets": snippets})
             return [toast("Deleted " + it["title"]), refresh()]
-        text = expand_snippet(it["_text"])
+        # The snippet as it is now, not a remembered copy of it.
+        current = self.settings.get("snippets", [])
+        n = entry_index(current, it.get("_eid", ""))
+        if n < 0:
+            return [toast("That snippet is gone", True), refresh()]
+        text = expand_snippet(str(current[n].get("text", "")))
         if aid == "copy":
             util.copy(text)
             return [toast("Copied"), close()]
@@ -265,8 +276,11 @@ class Snippets(Provider):
                  "keyword": str(values.get("keyword") or "").strip(), "text": text}
         snippets = list(self.settings.get("snippets", []))
         if which == "new":
-            snippets.append(entry)
+            snippets.append(dict(entry, id=uuid.uuid4().hex[:12]))
         else:
-            snippets[int(which)] = entry
+            n = entry_index(snippets, which)
+            if n < 0:
+                return [toast("That snippet is gone", True)]
+            snippets[n] = dict(entry, id=which)
         self.settings.set_many({"snippets": snippets})
         return [toast("Saved " + entry["name"]), set_query("sn ")]

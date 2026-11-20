@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 import threading
+import time
 
 from . import Provider, action, close, detail, item, toast
 from .. import util
@@ -16,6 +17,20 @@ SYSTEM_PROMPT = (
     "Markdown without images or HTML. Never change files."
 )
 TOOLS = ["Read", "Grep", "Glob", "Bash(omarchy-plugin-map:*)", "Bash(herdr-spaces list)", "Bash(omarchy commands:*)"]
+# The only built-in tools that exist for these calls at all; TOOLS above narrows Bash further.
+BUILTIN_TOOLS = "Read,Grep,Glob,Bash"
+
+
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# A link reference definition, also inside a list item or a quote: "[x]: url", "- [x]: url".
+REFERENCE = re.compile(r"^\s*(?:(?:[-*+]|\d+[.)])\s+|>\s*)*\[[^\]\n]*\]:\s*\S")
+
+
+def _escape(text: str) -> str:
+    # "![" never starts an image: a zero-width space after the "!" makes it a plain
+    # link at most, which the overlay doesn't follow. Matching image syntax with a
+    # pattern instead was bypassed by brackets inside the alt text.
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("![", "!\u200b[")
 
 
 def sanitize_markdown(text: str) -> str:
@@ -23,30 +38,30 @@ def sanitize_markdown(text: str) -> str:
 
     Qt's Markdown renderer loads images (remote ones too) and passes HTML
     through, so both go before display. Link targets stay as text; the
-    overlay doesn't follow links.
+    overlay doesn't follow links. Inside code (fenced or `inline`) Markdown
+    shows text literally, so nothing is escaped there.
     """
-    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)          # ![alt](src) → alt
-    text = re.sub(r"!\[([^\]]*)\]\[[^\]]*\]", r"\1", text)          # ![alt][ref] → alt
-    text = re.sub(r"^\s*\[[^\]]+\]:\s*\S+.*$", "", text, flags=re.M)  # [ref]: url
-    # HTML outside code: escaped. Inside code (fenced or `inline`) Markdown
-    # shows text literally, so escaping there would show "&lt;".
     out = []
-    fence = False
+    fence = ""                      # the fence that opened the current code block
     for line in text.split("\n"):
-        if line.lstrip().startswith(("```", "~~~")):
-            fence = not fence
+        m = FENCE.match(line)
+        if m and (not fence or (m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence)
+                                and not line[m.end():].strip())):
+            fence = "" if fence else m.group(1)
             out.append(line)
             continue
         if fence:
             out.append(line)
             continue
+        if REFERENCE.match(line):
+            continue
         parts = line.split("`")
         for i in range(0, len(parts), 2):
             if i == len(parts) - 1 and len(parts) % 2 == 0:
                 break
-            parts[i] = parts[i].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            parts[i] = _escape(parts[i])
         if len(parts) % 2 == 0:   # an unclosed ` : the rest is plain text after all
-            parts[-1] = parts[-1].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            parts[-1] = _escape(parts[-1])
         out.append("`".join(parts))
     return "\n".join(out)
 
@@ -108,14 +123,19 @@ class Claude(Provider):
     def cancel(self) -> None:
         with self._lock:
             if self._proc and self._proc.poll() is None:
-                self._proc.terminate()
+                util.kill_group(self._proc)     # claude and the tools it started
 
     def _ask(self, q: str, tag: dict, session: str = "") -> None:
         self.cancel()
         folder = util.expand(self.settings.get("claude.folder", "~") or "~")
-        argv = ["claude", "-p", q, "--model", self.settings.get("claude.model", "sonnet"),
+        # The question goes in on stdin: not in argv, where `ps` shows it and a
+        # question starting with "--" would read as an option. Read-only for real:
+        # only these tools, no MCP servers, and only the user's own settings, not
+        # the hooks or permissions of whatever folder it answers from.
+        argv = ["claude", "-p", "--model", self.settings.get("claude.model", "sonnet"),
                 "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-                "--append-system-prompt", SYSTEM_PROMPT, "--allowedTools", *TOOLS]
+                "--append-system-prompt", SYSTEM_PROMPT, "--tools", BUILTIN_TOOLS,
+                "--strict-mcp-config", "--setting-sources", "user", "--allowedTools", *TOOLS]
         if session:
             argv += ["--resume", session]
 
@@ -125,15 +145,25 @@ class Claude(Provider):
         emit({"status": "Thinking…"})
         try:
             proc = subprocess.Popen(argv, cwd=str(folder) if folder.is_dir() else str(util.HOME),
-                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    text=True, start_new_session=True)
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, errors="replace", start_new_session=True)
         except OSError as e:
             emit({"text": f"Could not start claude: {e}", "done": True, "status": ""})
             return
         with self._lock:
             self._proc = proc
+        try:
+            proc.stdin.write(q)
+            proc.stdin.close()
+        except OSError:
+            pass
+        # stderr is read alongside, so a chatty claude can't fill its pipe and stall.
+        errors: list[str] = []
+        drain = threading.Thread(target=lambda: errors.extend(proc.stderr.readlines()[-20:]), daemon=True)
+        drain.start()
         answer = ""
         final = ""
+        last_emit = 0.0
         for line in proc.stdout:
             try:
                 ev = json.loads(line)
@@ -148,7 +178,11 @@ class Claude(Provider):
                 delta = inner.get("delta") or {}
                 if inner.get("type") == "content_block_delta" and delta.get("type") == "text_delta":
                     answer += delta.get("text", "")
-                    emit({"text": sanitize_markdown(answer), "status": ""})
+                    # At most ten updates a second: each one re-sanitizes the whole answer.
+                    now = time.monotonic()
+                    if now - last_emit > 0.1:
+                        last_emit = now
+                        emit({"text": sanitize_markdown(answer), "raw": answer, "status": ""})
                 elif inner.get("type") == "content_block_start" and \
                         (inner.get("content_block") or {}).get("type") == "tool_use":
                     tool = (inner.get("content_block") or {}).get("name", "")
@@ -159,10 +193,11 @@ class Claude(Provider):
             elif kind == "result":
                 final = str(ev.get("result") or "")
         proc.wait()
+        drain.join(timeout=2)
         if proc.returncode != 0 and not (final or answer):
-            err = (proc.stderr.read() if proc.stderr else "").strip().splitlines()
+            err = "".join(errors).strip().splitlines()
             final = "*Claude did not answer.* " + (err[-1] if err else "Is it logged in? Try `claude` in a terminal.")
-        emit({"text": sanitize_markdown(final or answer), "done": True, "status": ""})
+        emit({"text": sanitize_markdown(final or answer), "raw": final or answer, "done": True, "status": ""})
 
 
 def _herdr_ws(label: str) -> str:
@@ -235,7 +270,8 @@ class Manual(Provider):
             for s in parse_sections(doc):
                 where = "Manual" if doc == docs[0] else doc.parent.name
                 sub = f"{where} › {s['parent']}" if s["parent"] else where
-                items.append(item("manual", f"{doc.name}:{s['title']}", s["title"], subtitle=sub, icon="󰈙",
+                # The path and line make the id unique: two "### Install" sections, or two README.md files.
+                items.append(item("manual", f"{doc}:{s['line']}:{s['title']}", s["title"], subtitle=sub, icon="󰈙",
                                   accessory="Manual", _keywords=[s["body"][:400]], _body=s["body"],
                                   _doc=str(doc), _line=s["line"]))
         self.items = items

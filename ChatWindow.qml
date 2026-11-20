@@ -21,15 +21,20 @@ Item {
   readonly property bool busy: turns.count > 0 && !turns.get(turns.count - 1).done
   property string notice: ""
 
-  ListModel { id: turns }          // {turnId, q, text, status, done}
+  ListModel { id: turns }          // {turnId, q, text, raw, status, done}: text is sanitized for display, raw is Claude's own
 
   function ask(q) {
     q = String(q || "").trim()
     if (!q) return
     chat.show()
-    if (chat.busy) return
+    // A question while an answer is still coming: that answer stops, the new one starts.
+    if (chat.busy) {
+      launcher.send({ op: "stop" })
+      turns.setProperty(turns.count - 1, "done", true)
+      turns.setProperty(turns.count - 1, "status", "")
+    }
     var turnId = chat.generation + "-" + turns.count
-    turns.append({ turnId: turnId, q: q, text: "", status: "Thinking…", done: false })
+    turns.append({ turnId: turnId, q: q, text: "", raw: "", status: "Thinking…", done: false })
     launcher.send({ op: "chat", turn: turnId, q: q, session: chat.session })
     Qt.callLater(function() { input.forceActiveFocus(); list.positionViewAtEnd() })
   }
@@ -39,10 +44,18 @@ Item {
       if (turns.get(i).turnId !== msg.turn) continue
       if (msg.session) chat.session = String(msg.session)
       if (msg.text !== undefined) turns.setProperty(i, "text", String(msg.text))
+      if (msg.raw !== undefined) turns.setProperty(i, "raw", String(msg.raw))
       if (msg.status !== undefined) turns.setProperty(i, "status", String(msg.status))
       if (msg.done) turns.setProperty(i, "done", true)
       return
     }
+  }
+
+  // The backend started again (the shell or the backend restarted): an answer in
+  // progress will never finish, so stop waiting for it.
+  function backendRestarted() {
+    for (var i = 0; i < turns.count; i++)
+      if (!turns.get(i).done) { turns.setProperty(i, "done", true); turns.setProperty(i, "status", "") }
   }
 
   // The launcher closes right after asking, and Hyprland hands focus back to
@@ -83,7 +96,7 @@ Item {
 
   function copyLast() {
     for (var i = turns.count - 1; i >= 0; i--)
-      if (turns.get(i).text) { chat.copy(turns.get(i).text, "Answer"); return }
+      if (turns.get(i).text) { chat.copy(turns.get(i).raw || turns.get(i).text, "Answer"); return }
   }
 
   Timer { id: noticeTimer; interval: 1600; onTriggered: chat.notice = "" }
@@ -244,6 +257,7 @@ Item {
           required property int index
           required property string q
           required property string text
+          required property string raw
           required property string status
           required property bool done
 
@@ -296,7 +310,8 @@ Item {
             accent: chat.launcher.accent
             fontFamily: chat.launcher.fontFamily
             fontSize: Style.font.bodySmall
-            onClicked: chat.copy(turn.text, "Answer")
+            // Claude's own text: the displayed one has &lt; and friends escaped.
+            onClicked: chat.copy(turn.raw || turn.text, "Answer")
           }
         }
       }

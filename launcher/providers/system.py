@@ -47,7 +47,8 @@ class Shell(Provider):
                            actions=[action("copy", "Copy output", "󰆏", "ctrl+c")])]
         if aid == "terminal" or (aid == "default" and mode == "terminal"):
             # Keep the window open afterwards so the output can be read.
-            util.terminal(["bash", "-lc", cmd + '; echo; read -rsn1 -p "Press any key to close…"'],
+            # A new line, not "; ": a command ending in "&" or a "# comment" still gets the pause.
+            util.terminal(["bash", "-lc", cmd + '\necho; read -rsn1 -p "Press any key to close…"'],
                           cwd=str(util.HOME))
         else:
             util.spawn_shell(cmd, cwd=str(util.HOME))
@@ -344,3 +345,119 @@ class Azure(Provider):
             return [toast("Copied the subscription id")]
         ok, out = util.run_ok(["az", "account", "set", "--subscription", it["_sid"]], timeout=20)
         return [toast(("Azure: " + it["title"]) if ok else (out.splitlines() or ["az failed"])[-1], not ok)]
+
+
+def _size(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1000 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit in ("B", "KB") or n >= 100 else f"{n:.1f} {unit}"
+        n /= 1000
+    return f"{n:.0f} TB"
+
+
+def _duration(seconds: float) -> str:
+    m = int(seconds // 60)
+    d, h, m = m // 1440, m // 60 % 24, m % 60
+    if d:
+        return f"{d} day{'s' if d != 1 else ''}, {h} h"
+    return f"{h} h {m} min" if h else f"{m} min"
+
+
+class SystemInfo(Provider):
+    """A few facts about this machine, for typing "ip", "disk", "battery" or "uptime".
+    Read from the system on the spot, nothing kept; Enter copies the value."""
+    id = "sysinfo"
+    name = "System info"
+    description = "ip, disk, battery, uptime"
+
+    KEYS = {"ip": ("ip", "address", "network"), "disk": ("disk", "space", "storage", "free"),
+            "battery": ("battery", "bat", "charge"), "uptime": ("uptime", "boot")}
+
+    def search(self, q, scoped):
+        words = q.strip().lower().split()
+        if not words:
+            return []
+        wanted = [k for k, keys in self.KEYS.items()
+                  if any(w and any(key.startswith(w) for key in keys) and len(w) >= 2 for w in words)]
+        out = []
+        for kind in wanted:
+            exact = any(w in self.KEYS[kind] for w in words)
+            for it in getattr(self, "_" + kind)():
+                out.append(dict(it, score=960 if exact else 700))
+        return out
+
+    def _ip(self) -> list[dict]:
+        out = []
+        try:
+            links = json.loads(util.run(["ip", "-j", "-4", "addr"], timeout=2) or "[]")
+        except ValueError:
+            links = []
+        for link in links:
+            name = str(link.get("ifname", ""))
+            if name == "lo" or name.startswith(("docker", "br-", "veth", "virbr")):
+                continue
+            for a in link.get("addr_info") or []:
+                ip = str(a.get("local", ""))
+                if not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", ip):
+                    continue
+                label = "Tailscale" if name.startswith("tailscale") else f"IP address · {name}"
+                out.append(item("sysinfo", "ip:" + ip, ip, subtitle=label, icon="󰩟", accessory="System",
+                                recordable=False, _copy=ip))
+        return out
+
+    def _disk(self) -> list[dict]:
+        import shutil
+        out, seen = [], set()
+        for label, path in (("System", "/"), ("Home", str(util.HOME))):
+            try:
+                u = shutil.disk_usage(path)
+            except OSError:
+                continue
+            # Home on the same disk as the system (btrfs subvolumes have their own
+            # device numbers, so compare what the disk reports): one row is enough.
+            if (u.total, u.free) in seen:
+                continue
+            seen.add((u.total, u.free))
+            free = _size(u.free)
+            out.append(item("sysinfo", "disk:" + path, f"{free} free",
+                            subtitle=f"{label} ({util.tilde(path)}) · {_size(u.total)} · {round(100 * u.used / u.total)}% used",
+                            icon="󰋊", accessory="System", recordable=False, _copy=free))
+        return out
+
+    def _battery(self) -> list[dict]:
+        out = []
+        base = "/sys/class/power_supply"
+        try:
+            names = sorted(n for n in os.listdir(base) if n.startswith("BAT"))
+        except OSError:
+            return []
+        for name in names:
+            try:
+                with open(os.path.join(base, name, "capacity")) as f:
+                    pct = int(f.read().strip())
+                with open(os.path.join(base, name, "status")) as f:
+                    status = f.read().strip()
+            except (OSError, ValueError):
+                continue
+            out.append(item("sysinfo", "battery:" + name, f"{pct}%", subtitle=f"Battery · {status}",
+                            icon="󰁹", accessory="System", recordable=False, _copy=f"{pct}%"))
+        return out
+
+    def _uptime(self) -> list[dict]:
+        try:
+            with open("/proc/uptime") as f:
+                seconds = float(f.read().split()[0])
+        except (OSError, ValueError, IndexError):
+            return []
+        import time as _time
+        since = _time.strftime("%a %d %b %H:%M", _time.localtime(_time.time() - seconds))
+        text = _duration(seconds)
+        return [item("sysinfo", "uptime", f"Up {text}", subtitle=f"Since {since}", icon="󰅐",
+                     accessory="System", recordable=False, _copy=text)]
+
+    def actions(self, it):
+        return [action("default", "Copy", "󰆏")]
+
+    def run(self, it, aid, arg):
+        util.copy(it.get("_copy", it["title"]))
+        return [toast("Copied " + it.get("_copy", it["title"])), close()]

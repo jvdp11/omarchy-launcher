@@ -157,7 +157,9 @@ class Settings:
     def _write(self, raw: dict) -> None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         tmp = f"{self.path}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
+        # Readable by you only: it holds snippets, quicklinks and aliases.
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(raw, f, indent=2, ensure_ascii=False)
             f.write("\n")
         os.replace(tmp, self.path)

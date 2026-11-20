@@ -78,7 +78,7 @@ class MarkdownTest(unittest.TestCase):
     def test_images_and_html_are_neutralised(self):
         md = 'Hi ![x](https://evil.example/t.png) <img src="https://evil.example/a"> and <b>bold</b>'
         out = knowledge.sanitize_markdown(md)
-        self.assertNotIn("evil.example/t.png", out)
+        self.assertNotIn("![", out)      # no image: the URL is at most a link, which nothing follows
         self.assertNotIn("<img", out)
         self.assertNotIn("<b>", out)
 
@@ -227,9 +227,21 @@ class SecurityTest(unittest.TestCase):
 
 
 class ReviewRegressionTest(unittest.TestCase):
-    def script(self, **kw):
-        return dict(id="scripts:demo", title="Demo", icon="", _path="/fake/demo", _dir="/tmp",
-                    _mode="silent", _args=[], _confirm=True, _prefix="demo", **kw)
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def script(self, mode="silent", args=(), confirm="true"):
+        """A real script in a temporary folder: the provider reads its header again when it runs."""
+        path = os.path.join(self._tmp.name, "demo")
+        header = ["#!/bin/sh", "# @launcher.title Demo", f"# @launcher.mode {mode}",
+                  f"# @launcher.needsConfirmation {confirm}"]
+        header += [f"# @launcher.argument{n + 1} " + json.dumps(a) for n, a in enumerate(args)]
+        with open(path, "w") as f:
+            f.write("\n".join(header) + "\n")
+        os.chmod(path, 0o755)
+        return dict(id="scripts:" + path, title="Demo", icon="", _path=path, _dir=self._tmp.name,
+                    _mode=mode, _args=list(args), _confirm=True, _prefix="demo")
 
     def test_confirmation_is_required_and_one_use(self):
         from unittest import mock
@@ -241,7 +253,7 @@ class ReviewRegressionTest(unittest.TestCase):
             self.assertEqual(steps[0]["type"], "form")
             form_id = steps[0]["form"]["id"]
             provider.submit(form_id, {})
-            spawn.assert_called_once_with(["/fake/demo"], cwd="/tmp")
+            spawn.assert_called_once_with([self._tmp.name + "/demo"], cwd=self._tmp.name)
             provider.submit(form_id, {})
             self.assertEqual(spawn.call_count, 1)
 
@@ -249,12 +261,12 @@ class ReviewRegressionTest(unittest.TestCase):
         from unittest import mock
         from launcher import util
         provider = scripts.Scripts(_Ctx())
-        script = self.script(); script["_args"] = [{"placeholder": "Value"}]
+        script = self.script(args=[{"placeholder": "Value"}])
         with mock.patch.object(util, "spawn") as spawn:
             form_id = provider.run(script, "default", "a; echo unsafe")[0]["form"]["id"]
             spawn.assert_not_called()
             provider.submit(form_id, {})
-            spawn.assert_called_once_with(["/fake/demo", "a; echo unsafe"], cwd="/tmp")
+            spawn.assert_called_once_with([self._tmp.name + "/demo", "a; echo unsafe"], cwd=self._tmp.name)
 
     def test_expired_confirmation_does_not_execute(self):
         from unittest import mock
@@ -269,13 +281,13 @@ class ReviewRegressionTest(unittest.TestCase):
     def test_list_script_cannot_run_before_confirmation(self):
         from unittest import mock
         provider = scripts.Scripts(_Ctx())
-        script = self.script(); script["_mode"] = "list"
-        with mock.patch.object(scripts.subprocess, "run") as run:
+        from launcher import util
+        script = self.script(mode="list")
+        with mock.patch.object(util, "communicate", return_value=(0, "", "")) as run:
             self.assertTrue(provider.list_search(script, "query"))
             run.assert_not_called()
             form_id = provider.run(script, "default", None)[0]["form"]["id"]
             self.assertEqual(provider.submit(form_id, {})[0]["type"], "query")
-            run.return_value.stdout = ""
             provider.list_search(script, "query")
             run.assert_called_once()
 
@@ -298,6 +310,141 @@ class ReviewRegressionTest(unittest.TestCase):
                     provider.run(selected, "copy", None)
                     paste.assert_called_once_with("selected text")
                     copy.assert_called_once_with("selected text")
+
+
+class FixesTest(unittest.TestCase):
+    """The bug review and security sweep of November 2026."""
+
+    def test_markdown_image_bypasses(self):
+        for md in ("![a [b] c](http://evil/c.png)", "![\\]](http://e/1.png)", "- [x]: http://e/4.png\n\n![x]"):
+            out = knowledge.sanitize_markdown(md)
+            self.assertNotIn("![", out, md)
+            self.assertNotIn("]: http", out, md)
+        self.assertIn("![x](y)", knowledge.sanitize_markdown("`![x](y)`"), "code stays literal")
+
+    def test_calculator(self):
+        ev = calc.safe_eval
+        self.assertEqual(ev("1,5 + 1"), 2.5)
+        self.assertEqual(ev("1,000,000 + 1"), 1000001)
+        self.assertEqual(ev("log(8,2)"), 3.0)
+        self.assertEqual(ev("round(2.567, 2)"), 2.57)
+        self.assertEqual(ev("10 % 3"), 1)
+        self.assertEqual(ev("50 * 10%"), 5.0)
+        for huge in ("((9**99)**999)**99", "((9**999)**999)**999", "2**10000000"):
+            with self.assertRaises(ValueError):
+                ev(huge)
+
+    def test_confirmation_spellings(self):
+        for v, want in (("true", True), ("True", True), ("yes", True), ("1", True), ("false", False), ("", False)):
+            self.assertEqual(scripts.needs_confirmation({"needsConfirmation": v}), want, v)
+
+    def test_cancelled_prompt_does_not_leak_arguments(self):
+        from unittest import mock
+        from launcher import util
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "two")
+            with open(path, "w") as f:
+                f.write('#!/bin/sh\n# @launcher.title Two\n# @launcher.argument1 {"placeholder": "A"}\n'
+                        '# @launcher.argument2 {"placeholder": "B"}\n')
+            os.chmod(path, 0o755)
+            it = dict(id="scripts:" + path, title="Two", icon="", _path=path, _dir=d, _mode="silent",
+                      _args=[{"placeholder": "A"}, {"placeholder": "B"}], _confirm=False, _prefix="")
+            provider = scripts.Scripts(_Ctx())
+            self.assertEqual(provider.run(it, "default", "first")[0]["type"], "arg")
+            provider.pending_args.clear()          # what a new search does (Server.query)
+            with mock.patch.object(util, "spawn") as spawn:
+                self.assertEqual(provider.run(it, "default", "new")[0]["type"], "arg")
+                provider.run(it, "default", "second")
+                spawn.assert_called_once_with([path, "new", "second"], cwd=d)
+
+    def test_snippets_get_stable_ids_and_favourites_follow(self):
+        with tempfile.TemporaryDirectory() as d:
+            st = Settings(os.path.join(d, "s.json"))
+            st.set_many({"snippets": [{"name": "A", "text": "a"}, {"name": "B", "text": "b"}],
+                         "favourites": ["snippets:1:B"]})
+            ctx = _Ctx(); ctx.settings = st
+            items = text.Snippets(ctx)._items()[1:]
+            b = [i for i in items if i["title"] == "B"][0]
+            self.assertEqual(st.get("favourites"), [b["id"]])
+            # Deleting A keeps B's id.
+            text.Snippets(ctx).run([i for i in items if i["title"] == "A"][0], "delete", None)
+            self.assertEqual([i["id"] for i in text.Snippets(ctx)._items()[1:]], [b["id"]])
+            self.assertEqual(oct(os.stat(os.path.join(d, "s.json")).st_mode & 0o777), "0o600")
+
+    def test_filled_quicklink_has_its_own_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            st = Settings(os.path.join(d, "s.json"))
+            st.set_many({"quicklinks": [{"name": "GitHub", "keyword": "gh", "url": "https://github.com/{query}"}]})
+            ctx = _Ctx(); ctx.settings = st
+            ql = web.Quicklinks(ctx)
+            found = ql.search("gh foo/bar", False)
+            filled = [f for f in found if f.get("_filled")][0]
+            plain = ql._items()[0]
+            self.assertNotEqual(filled["id"], plain["id"])
+
+    def test_web_open_is_http_only(self):
+        w = web.Web(_Ctx())
+        self.assertTrue(any(i["id"] == "web:open" for i in w.search("example.com", True)))
+        self.assertFalse(any(i["id"] == "web:open" for i in w.search("file:///etc/passwd", True)))
+        self.assertFalse(any(i["id"] == "web:open" for i in w.search("smb://nas.local/share", True)))
+
+    def test_timeouts_end_the_whole_process_group(self):
+        import subprocess
+        from launcher import util
+        marker = "31.4159"
+        util.run_ok(["bash", "-c", f"sleep {marker} | cat"], timeout=0.5)
+        left = subprocess.run(["pgrep", "-f", f"sleep {marker}"], capture_output=True, text=True).stdout
+        self.assertEqual(left.strip(), "")
+
+    def test_undecodable_output_does_not_crash(self):
+        from launcher import util
+        self.assertIn("\ufffd", util.run(["printf", "\\377ok"]))
+
+    def test_notification_bodies_are_escaped(self):
+        from launcher import util
+        self.assertEqual(util.escape_markup("<b>a & b</b>"), "&lt;b&gt;a &amp; b&lt;/b&gt;")
+
+    def test_terminal_command_keeps_its_pause(self):
+        from unittest import mock
+        from launcher import util
+        from launcher.providers import system
+        sh = system.Shell(_Ctx())
+        with mock.patch.object(util, "terminal") as term:
+            sh.run({"_cmd": "firefox &"}, "terminal", None)
+        cmd = term.call_args[0][0][-1]
+        self.assertTrue(cmd.startswith("firefox &\n"), cmd)
+
+    def test_system_info(self):
+        from launcher.providers import system
+        info = system.SystemInfo(_Ctx())
+        self.assertTrue(info.search("uptime", False))
+        self.assertTrue(info.search("disk", False))
+        self.assertEqual(info.search("q", False), [])
+        up = info.search("uptime", False)[0]
+        self.assertGreaterEqual(up["score"], 900)
+
+    def test_manual_sections_with_the_same_heading(self):
+        with tempfile.TemporaryDirectory() as d:
+            doc = os.path.join(d, "README.md")
+            with open(doc, "w") as f:
+                f.write("## One\n### Install\na\n## Two\n### Install\nb\n")
+            st = Settings(os.path.join(d, "s.json"))
+            st.set_many({"manual": {"files": [doc]}})
+            ctx = _Ctx(); ctx.settings = st
+            m = knowledge.Manual(ctx)
+            m.refresh()
+            ids = [i["id"] for i in m.items if i["title"] == "Install"]
+            self.assertEqual(len(set(ids)), 2)
+
+    def test_history_keeps_no_command_of_runnable_sources(self):
+        from launcher.state import History
+        with tempfile.TemporaryDirectory() as d:
+            h = History(os.path.join(d, "h.json"))
+            h.record({"id": "scripts:/x/y", "title": "Y", "_path": "/x/y"})
+            h.record({"id": "files:/a", "title": "a", "_path": "/a"})
+            self.assertNotIn("_path", h.snapshot("scripts:/x/y"))
+            self.assertEqual(h.snapshot("files:/a")["_path"], "/a")
+            self.assertEqual(oct(os.stat(os.path.join(d, "h.json")).st_mode & 0o777), "0o600")
 
 
 class _Ctx:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import subprocess
 import threading
 from pathlib import Path
@@ -36,12 +37,39 @@ def have(cmd: str) -> bool:
 # meant for the launcher's own op calls only (providers/onepassword.py), not
 # for scripts, shell commands or menu conditions that happen to call op.
 
+def kill_group(proc: subprocess.Popen) -> None:
+    """Stop a command and everything it started (its own session = its own process group)."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
+def communicate(argv: list[str], timeout: float, input: str | None = None, cwd: str | None = None,
+                env: dict | None = None) -> tuple[int, str, str]:
+    """(returncode, stdout, stderr). On a timeout the whole process group goes, not
+    just the direct child: `a | b` in a shell would otherwise leave `a` running.
+    Output that isn't valid UTF-8 is decoded with replacement characters."""
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace",
+                            cwd=cwd, env=env, start_new_session=True)
+    try:
+        out, err = proc.communicate(input=input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_group(proc)
+        proc.communicate()
+        raise
+    return proc.returncode, out, err
+
+
 def run(argv: list[str], timeout: float = 3, input: str | None = None, cwd: str | None = None) -> str:
     """Run a command and return its stdout ("" on any failure)."""
     try:
-        out = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, input=input, cwd=cwd,
-                             start_new_session=True)
-        return out.stdout if out.returncode == 0 else ""
+        code, out, _ = communicate(argv, timeout, input=input, cwd=cwd)
+        return out if code == 0 else ""
     except (OSError, subprocess.SubprocessError):
         return ""
 
@@ -49,8 +77,8 @@ def run(argv: list[str], timeout: float = 3, input: str | None = None, cwd: str 
 def run_ok(argv: list[str], timeout: float = 5) -> tuple[bool, str]:
     """Run a command; (succeeded, stdout + stderr)."""
     try:
-        out = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, start_new_session=True)
-        return out.returncode == 0, (out.stdout + out.stderr).strip()
+        code, out, err = communicate(argv, timeout)
+        return code == 0, (out + err).strip()
     except (OSError, subprocess.SubprocessError) as e:
         return False, str(e)
 
@@ -95,11 +123,16 @@ def editor(path: str) -> None:
     spawn(["omarchy-launch-editor", str(path)])
 
 
+def escape_markup(text: str) -> str:
+    """Notification bodies may be read as markup; titles, errors and names come from elsewhere."""
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def notify(title: str, body: str = "", icon: str = "") -> None:
     argv = ["notify-send", "-a", "Launcher"]
     if icon:
         argv += ["-i", icon]
-    spawn(argv + [title, body] if body else argv + [title])
+    spawn(argv + [title, escape_markup(body)] if body else argv + [title])
 
 
 def copy(text: str, sensitive: bool = False) -> None:
@@ -125,15 +158,16 @@ def copy_files(paths: list[str]) -> None:
 def paste(text: str) -> None:
     """Type text into the window that had focus before the launcher opened.
 
-    Omarchy's own helper copies it and sends Shift+Insert, which works in
-    terminals and GUI apps alike. Wait for the overlay to close first.
+    Like Omarchy's own helper: copy it, then send Shift+Insert, which works in
+    terminals and GUI apps alike. The text goes to wl-copy on stdin, never as an
+    argument (where `ps` would show it, and a leading `--` would read as an
+    option). Wait for the overlay to close first.
     """
-    helper = os.path.join(OMARCHY_PATH, "bin/omarchy-clipboard-paste-text")
-
     def later():
         import time
+        copy(text)
         time.sleep(0.25)
-        spawn([helper, "--shift-insert", text])
+        spawn(["wtype", "-M", "shift", "-k", "Insert", "-m", "shift"])
 
     threading.Thread(target=later, daemon=True).start()
 

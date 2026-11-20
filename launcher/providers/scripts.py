@@ -64,6 +64,11 @@ def parse_header(path: str) -> dict | None:
     return meta
 
 
+def needs_confirmation(meta: dict) -> bool:
+    """@launcher.needsConfirmation (or Raycast's spelling): true, yes or 1, in any case."""
+    return str(meta.get("needsConfirmation", "")).strip().lower() in ("true", "yes", "1")
+
+
 def script_dirs(settings) -> list[str]:
     dirs = [str(util.USER_DIR / "commands"), str(util.PLUGIN_DIR / "commands")]
     return [d for d in dirs if os.path.isdir(d)]
@@ -99,7 +104,7 @@ class Scripts(Provider):
                 it = item("scripts", path, meta["title"], subtitle=meta.get("description") or meta.get("packageName") or "Script",
                           icon=icon or "󰆍", accessory=meta.get("packageName") or "Script",
                           _keywords=[meta.get("packageName", ""), name], _path=path, _mode=mode,
-                          _args=meta["arguments"], _confirm=meta.get("needsConfirmation") == "true",
+                          _args=meta["arguments"], _confirm=needs_confirmation(meta),
                           _prefix=meta.get("prefix", ""), _dir=d)
                 if meta["arguments"]:
                     it["arg"] = {"placeholder": meta["arguments"][0].get("placeholder") or "Argument"}
@@ -128,12 +133,11 @@ class Scripts(Provider):
             return [dict(script, arg=None, score=1000,
                          subtitle="Confirm this script before searching it")]
         try:
-            out = subprocess.run([script["_path"], q], capture_output=True, text=True, timeout=5,
-                                 cwd=script["_dir"], start_new_session=True)
+            _, stdout, _ = util.communicate([script["_path"], q], timeout=5, cwd=script["_dir"])
         except (OSError, subprocess.SubprocessError):
             return []
         items = []
-        for n, line in enumerate(out.stdout[:MAX_OUTPUT].splitlines()[:200]):
+        for n, line in enumerate(stdout[:MAX_OUTPUT].splitlines()[:200]):
             try:
                 row = json.loads(line)
             except ValueError:
@@ -164,6 +168,13 @@ class Scripts(Provider):
         if aid == "folder":
             util.open_target(it["_dir"])
             return [close()]
+        # Read the script's header again now: it may have changed (or gained a
+        # confirmation) since the list was built.
+        meta = parse_header(it["_path"]) if os.access(it["_path"], os.X_OK) else None
+        if meta is None:
+            return [toast(f"{it['title']} is gone or no longer a launcher script", True)]
+        it = dict(it, _confirm=needs_confirmation(meta), _args=meta["arguments"],
+                  _mode=meta.get("mode", it.get("_mode", "silent")))
         if it.get("_mode") == "list":
             if it.get("_confirm"):
                 return self._confirmation(it, [])
@@ -220,17 +231,17 @@ class Scripts(Provider):
             util.spawn(argv, cwd=it["_dir"])
             return [close()]
         try:
-            out = subprocess.run(argv, capture_output=True, text=True, timeout=30, cwd=it["_dir"], start_new_session=True)
+            code, stdout, stderr = util.communicate(argv, timeout=30, cwd=it["_dir"])
         except subprocess.TimeoutExpired:
             return [toast(f"{it['title']} took longer than 30 seconds", True)]
         except OSError as e:
             return [toast(f"{it['title']}: {e.strerror}", True)]
-        text = (out.stdout + (("\n" + out.stderr) if out.returncode != 0 else ""))[:MAX_OUTPUT].rstrip()
+        text = (stdout + (("\n" + stderr) if code != 0 else ""))[:MAX_OUTPUT].rstrip()
         if mode == "fullOutput":
             return [detail(it["title"], _strip_ansi(text) or "(no output)", icon=it["icon"],
                            actions=[action("copy", "Copy output", "󰆏", "ctrl+c")])]
         last = (_strip_ansi(text).splitlines() or ["Done"])[-1]
-        return [toast(last, out.returncode != 0)] + ([] if out.returncode != 0 else [close()])
+        return [toast(last, code != 0)] + ([] if code != 0 else [close()])
 
     def _row(self, it, aid):
         act = it["_row_action"]

@@ -129,14 +129,16 @@ class Files(Provider):
             argv += ["--exclude", str(ex)]
         # Every word must appear in the full path, the last one in the name.
         words = q.split()
-        argv += ["--full-path", ".*".join(_regex_escape(w) for w in words)] if len(words) > 1 \
-            else [_regex_escape(q)]
+        if len(words) > 1:
+            argv.append("--full-path")
+        # "--": a pattern that starts with "-" is a pattern, not an option (`/ -h`).
+        argv += ["--", ".*".join(_regex_escape(w) for w in words) if len(words) > 1 else _regex_escape(q)]
         argv += roots
         try:
-            out = subprocess.run(argv, capture_output=True, text=True, timeout=3, start_new_session=True)
+            _, out, _ = util.communicate(argv, timeout=3)
         except (OSError, subprocess.SubprocessError):
             return []
-        return [line for line in out.stdout.splitlines() if line]
+        return [line for line in out.splitlines() if line]
 
     def actions(self, it):
         acts = [action("default", "Open", "󰏌"),

@@ -41,7 +41,7 @@ currencies, dates and time zones. Plain sums work without it.
 | Key | Does |
 |---|---|
 | *type* | search |
-| `↑` `↓` · `Ctrl+J/K` · `PgUp/PgDn` | move |
+| `↑` `↓` · `Ctrl+N/P` · `Ctrl+J` (down) · `PgUp/PgDn` | move |
 | `Enter` | the main action (shown bottom right) |
 | `Tab` or `Ctrl+K` | every action for the result, with its shortcut |
 | `Ctrl+P` | favourite / unfavourite |
@@ -64,6 +64,7 @@ Just type. These are searched together:
 - **Sums** and **conversions**: `2*(3+4)`, `5 ft to cm`, `100 usd to eur`, `today + 3 weeks`
 - **World clock**: `time in tokyo`, `nyc time`, `15:00 in tokyo`, `3pm london in tokyo`
 - **Recent files**, **themes**, **audio devices**, **Bluetooth**, **Wi-Fi networks**
+- **This machine**: `ip` (each address, Tailscale's too), `disk` (free space), `battery`, `uptime`; Enter copies the value
 - **Quicklinks** with an argument: `gh owner/repo`, `aur foo`, `yt lofi`
 - **Snippets**, pasted where you were typing
 - **Your manual**: the sections of `~/.dotfiles/README.md`, or whichever Markdown files you name
@@ -105,7 +106,10 @@ also select text. `Ctrl+Shift+C` copies the last answer, `Ctrl+N` starts over,
 
 It runs from a folder you choose (your home folder by default), so point it at
 one whose `CLAUDE.md` describes your setup and it knows your rules. It is
-read-only: it can look, never change. Name a herdr space in the settings and
+read-only: it can look, never change. Only Read, Grep, Glob and a few listed
+commands are available, no MCP servers, and only your own Claude settings
+count, not the hooks or permissions of the folder it runs in. Answers show no
+images and no HTML, so nothing in them loads from the internet. Name a herdr space in the settings and
 `Ctrl+Enter` hands the question to it when you want it *done*.
 
 Hyprland tiles new windows, so float this one in `~/.config/hypr/hyprland.lua`:
@@ -219,7 +223,12 @@ Nothing leaves your machine unless you ask. Web searches and quicklinks open
 your browser; *Ask Claude* sends your question only when you pick it; the
 calculator lets `qalc` fetch exchange rates once a day, and you can turn that off.
 Your history (`~/.local/state/omarchy-launcher/`) never holds 1Password items
-or clipboard contents.
+or clipboard contents, nor the commands behind apps, menu items and scripts:
+those always run as they are now. History and settings are readable by you
+only. Questions to Claude, pasted text and snippets go to other programs on
+stdin, never as arguments that `ps` would show; search text can't turn into
+an option of `fd` or `qalc`; a command that times out is stopped with
+everything it started.
 
 ## License
 
@@ -227,7 +236,7 @@ MIT © jvdp11
 
 ### Script confirmation and clipboard selection
 
-Scripts declaring `@launcher.needsConfirmation true` (or the Raycast spelling) open a confirmation form showing their path and arguments. Choose **Run** or press **Ctrl+S** to execute; Escape cancels. Confirmation tokens expire after five minutes and can only be submitted once. A list script with this flag requires confirmation before its first search and grants searches through that script for five minutes.
+Scripts declaring `@launcher.needsConfirmation true` (`yes` or `1` too; or the Raycast spelling) open a confirmation form showing their path and arguments. Choose **Run** or press **Ctrl+S** to execute; Escape cancels. Confirmation tokens expire after five minutes and can only be submitted once. A script's header is read again when it runs, so a changed script can't skip its confirmation. A list script with this flag requires confirmation before its first search and grants searches through that script for five minutes.
 
 Clipboard text actions use the selected text snapshot and a content-based result ID, so a new clipboard entry cannot change what a selected row pastes.
 

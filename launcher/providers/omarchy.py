@@ -111,10 +111,9 @@ def check_conditions(rows: dict) -> dict:
     if not lines:
         return {}
     try:
-        out = subprocess.run(["bash", "-c", "\n".join(lines)], capture_output=True, text=True, timeout=8,
-                             start_new_session=True,
-                             env=dict(os.environ, PATH=os.path.join(util.OMARCHY_PATH, "bin") + ":" + os.environ.get("PATH", "")))
-        answers = out.stdout.split()
+        _, stdout, _ = util.communicate(["bash", "-c", "\n".join(lines)], timeout=8,
+                                        env=dict(os.environ, PATH=os.path.join(util.OMARCHY_PATH, "bin") + ":" + os.environ.get("PATH", "")))
+        answers = stdout.split()
     except (OSError, subprocess.SubprocessError):
         answers = []
     return {k: (answers[i] == "1") for i, k in enumerate(keys) if i < len(answers)}

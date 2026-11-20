@@ -38,9 +38,10 @@ class History:
             self.entries = {}
 
     def _save(self) -> None:
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
         tmp = f"{self.path}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(self.entries, f, ensure_ascii=False)
         os.replace(tmp, self.path)
 
@@ -55,8 +56,12 @@ class History:
             e["at"] = now
             # Private fields too, so a recent item can run again before its
             # source has listed it; long ones (a manual section) are left out.
+            # Not for sources that run things (apps, menu commands, scripts): those
+            # always run their current item, so what they would run isn't kept.
+            live_only = item["id"].split(":", 1)[0] in ("apps", "omarchy", "plugins", "launcher", "scripts")
             e["item"] = {k: v for k, v in item.items()
-                         if k not in ("score", "section") and not (isinstance(v, str) and len(v) > 2000)}
+                         if k not in ("score", "section") and not (isinstance(v, str) and len(v) > 2000)
+                         and not (live_only and k.startswith("_"))}
             if query:
                 # The search that found it, so typing it again ranks it first.
                 qs = [q for q in e.get("queries", []) if q != query][:4]

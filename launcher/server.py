@@ -37,7 +37,7 @@ from .providers.omarchy import OmarchyMenu
 from .providers.onepassword import OnePassword
 from .providers.plugins import Plugins
 from .providers.scripts import Scripts
-from .providers.system import Azure, Devices, Keybindings, Processes, Shell, Themes
+from .providers.system import Azure, Devices, Keybindings, Processes, Shell, SystemInfo, Themes
 from .providers.text import Clipboard, Emoji, Snippets
 from .providers.web import Quicklinks, Web
 from .providers.work import Herdr, Projects
@@ -46,12 +46,15 @@ from .settings import Settings
 from .state import History
 
 PROVIDERS = [Builtin, Apps, OmarchyMenu, Plugins, Scripts, Quicklinks, Snippets, Herdr, Projects, Windows,
-             Calculator, WorldClock, Files, Manual, Devices, Themes, OnePassword, Azure, Clipboard, Emoji,
+             Calculator, WorldClock, SystemInfo, Files, Manual, Devices, Themes, OnePassword, Azure, Clipboard, Emoji,
              Web, Shell, Claude, Processes, Keybindings]
 
 MAX_RESULTS = 80
 GLOBAL_MIN = 300
 COMMON_ACTIONS = ("fav", "unfav", "alias", "unalias", "forget")
+# Sources whose items run something (an app, a menu command, a script): only their
+# current item may run, never a remembered copy, which could be stale or edited.
+LIVE_ONLY = ("apps", "omarchy", "plugins", "launcher", "scripts")
 
 
 def public(it: dict, favourites: list, aliases_for: dict) -> dict:
@@ -77,7 +80,8 @@ class Server:
                                          for p in self.providers}
         self.settings.reload(force=True)
         self.by_id = {p.id: p for p in self.providers}
-        self.items: dict[str, dict] = {}      # every result sent recently, by id
+        self.items: dict[str, dict] = {}      # every result sent recently, by id (oldest first)
+        self._items_lock = threading.Lock()
         self._streams = 0
         self._refreshing = threading.Lock()
 
@@ -131,11 +135,14 @@ class Server:
             traceback.print_exc(file=sys.stderr)
 
     def remember(self, items: list[dict]) -> None:
-        for it in items:
-            self.items[it["id"]] = it
-        if len(self.items) > 4000:
-            for k in list(self.items)[:2000]:
-                del self.items[k]
+        with self._items_lock:
+            for it in items:
+                # Move a re-sent id to the end, so trimming never drops what is on screen.
+                self.items.pop(it["id"], None)
+                self.items[it["id"]] = it
+            if len(self.items) > 4000:
+                for k in list(self.items)[:2000]:
+                    del self.items[k]
 
     def find(self, item_id: str) -> dict | None:
         it = self.items.get(item_id)
@@ -179,6 +186,11 @@ class Server:
             return
         self.current_seq = seq
         self.current_q = q
+        if not rerun:
+            # A new search: an argument prompt that was open has been left.
+            scripts = self.by_id.get("scripts")
+            if scripts is not None:
+                scripts.pending_args.clear()
         self.settings.reload()
         if not q.strip():
             self._emit_results(seq, self.home(), done=True)
@@ -300,7 +312,9 @@ class Server:
         out = []
         favs = self.settings.get("favourites", [])
         for fid in favs:
-            it = self.find(fid) or self.history.snapshot(fid)
+            it = self.find(fid)
+            if it is None and fid.split(":", 1)[0] not in LIVE_ONLY:
+                it = self.history.snapshot(fid)
             if it:
                 out.append(dict(it, section="Favourites", score=0))
         if mode == "favourites-recent":
@@ -312,7 +326,7 @@ class Server:
                 # (a file, a project, a 1Password item before its list loads).
                 current = self.find(snap["id"])
                 if current is None:
-                    if snap["id"].split(":", 1)[0] in ("apps", "omarchy", "plugins", "launcher", "scripts"):
+                    if snap["id"].split(":", 1)[0] in LIVE_ONLY:
                         continue    # uninstalled or removed
                     current = snap
                 shown.add(snap["id"])

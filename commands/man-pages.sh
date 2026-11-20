@@ -13,7 +13,7 @@ query=${1:-}
 [[ -n $query ]] || { echo '{"title": "Type a command name", "icon": "󰋗"}'; exit 0; }
 
 # Names starting with the query first, then any page that mentions it.
-{ whatis -l -w "$query*"; apropos -l -- "$query"; } 2>/dev/null | awk '!seen[$1 $2]++' | head -40 | while read -r name section rest; do
+{ whatis -l -w -- "$query*"; apropos -l -- "$query"; } 2>/dev/null | awk '!seen[$1 $2]++' | head -40 | while read -r name section rest; do
   section=${section//[()]/}
   desc=${rest#- }
   jq -cn --arg t "$name($section)" --arg s "$desc" --arg n "$name" --arg sec "$section" \

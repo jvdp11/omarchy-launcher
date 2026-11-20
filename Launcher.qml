@@ -206,6 +206,7 @@ Item {
     try { msg = JSON.parse(line) } catch (e) { return }
     if (!msg || !msg.op) return
     if (msg.op === "hello") {
+      chatWindow.backendRestarted()
       root.sendApps()
       if (root.opened) root.search()
     } else if (msg.op === "results") {
@@ -403,6 +404,9 @@ Item {
 
   function actionForShortcut(sc) {
     if (!sc || sc.indexOf("ctrl") !== 0 && sc.indexOf("alt") !== 0) return null
+    // Only the selected row's own actions: right after the selection moves, the
+    // list may still hold the previous row's (Ctrl+W on a window, then an app).
+    if (root.page !== "detail" && !(root.selected && root.actionsFor === root.selected.id)) return null
     for (var i = 0; i < root.actions.length; i++)
       if (root.actions[i].shortcut === sc) return root.actions[i]
     return null

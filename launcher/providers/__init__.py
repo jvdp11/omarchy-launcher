@@ -28,6 +28,42 @@ def item(provider: str, key: str, title: str, **fields) -> dict:
     return out
 
 
+def stable_entries(settings, key: str, provider: str, name_of) -> list[dict]:
+    """The user's list under `key` (snippets, quicklinks), each entry with an id of
+    its own that stays when others are deleted. Entries saved before ids existed get
+    one now, and favourites and aliases of their old id ("<provider>:<index>:<name>")
+    move to the new one."""
+    import uuid
+    entries = settings.get(key, [])
+    if not isinstance(entries, list):
+        return []
+    changed, moved = False, {}
+    fixed = []
+    for i, e in enumerate(entries):
+        if isinstance(e, dict) and not e.get("id"):
+            e = dict(e, id=uuid.uuid4().hex[:12])
+            moved[f"{provider}:{i}:{name_of(e)}"] = f"{provider}:{e['id']}"
+            changed = True
+        fixed.append(e)
+    if changed:
+        updates = {key: fixed}
+        favs = settings.get("favourites", [])
+        if any(f in moved for f in favs):
+            updates["favourites"] = [moved.get(f, f) for f in favs]
+        aliases = settings.get("aliases", {})
+        if any(v in moved for v in aliases.values()):
+            updates["aliases"] = {k: moved.get(v, v) for k, v in aliases.items()}
+        settings.set_many(updates)
+    return fixed
+
+
+def entry_index(entries: list, eid: str) -> int:
+    for i, e in enumerate(entries):
+        if isinstance(e, dict) and e.get("id") == eid:
+            return i
+    return -1
+
+
 def action(aid: str, title: str, icon: str = "", shortcut: str = "") -> dict:
     return {"id": aid, "title": title, "icon": icon, "shortcut": shortcut}
 
