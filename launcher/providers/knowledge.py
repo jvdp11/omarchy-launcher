@@ -33,33 +33,56 @@ def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("![", "!\u200b[")
 
 
+def _defang(text: str) -> str:
+    # What is left alone as code here may not be code to Qt's parser (mismatched backtick
+    # runs, odd fences), so image and tag starts are broken up there too. Invisible
+    # joiners instead of escapes: an escape would show literally in real code. "<" only
+    # when a tag, comment or autolink could start, so "a < b" stays as it is.
+    return re.sub(r"<(?=[A-Za-z/!?])", "<\u2060", text).replace("![", "!\u200b[")
+
+
+def _opening(line: str) -> str:
+    """The fence that this line opens, or "" (CommonMark: a backtick fence's info string has no backtick)."""
+    m = FENCE.match(line)
+    return m.group(1) if m and not (m.group(1)[0] == "`" and "`" in line[m.end():]) else ""
+
+
+def _closes(line: str, fence: str) -> bool:
+    m = FENCE.match(line)
+    return bool(m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip())
+
+
 def sanitize_markdown(text: str) -> str:
     """Markdown that is safe to render: no images, no raw HTML.
 
     Qt's Markdown renderer loads images (remote ones too) and passes HTML
     through, so both go before display. Link targets stay as text; the
     overlay doesn't follow links. Inside code (fenced or `inline`) Markdown
-    shows text literally, so nothing is escaped there.
+    shows text literally, so only image and tag starts are broken up there
+    (_defang); nothing there can then become an image or HTML, whatever the
+    renderer makes of the backticks.
     """
     out = []
     fence = ""                      # the fence that opened the current code block
     for line in text.split("\n"):
-        m = FENCE.match(line)
-        if m and (not fence or (m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence)
-                                and not line[m.end():].strip())):
-            fence = "" if fence else m.group(1)
-            out.append(line)
-            continue
         if fence:
-            out.append(line)
+            if _closes(line, fence):
+                fence = ""
+            out.append(_defang(line))
+            continue
+        opened = _opening(line)
+        if opened:
+            fence = opened
+            out.append(_defang(line))
             continue
         if REFERENCE.match(line):
             continue
         parts = line.split("`")
-        for i in range(0, len(parts), 2):
-            if i == len(parts) - 1 and len(parts) % 2 == 0:
-                break
-            parts[i] = _escape(parts[i])
+        for i in range(len(parts)):
+            if i % 2 == 0 and not (i == len(parts) - 1 and len(parts) % 2 == 0):
+                parts[i] = _escape(parts[i])
+            elif i % 2:
+                parts[i] = _defang(parts[i])
         if len(parts) % 2 == 0:   # an unclosed ` : the rest is plain text after all
             parts[-1] = _escape(parts[-1])
         out.append("`".join(parts))

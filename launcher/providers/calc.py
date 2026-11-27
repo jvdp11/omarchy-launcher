@@ -26,6 +26,9 @@ _NAMES.update({"abs": abs, "round": round, "ln": math.log})
 
 LOOKS_LIKE_MATH = re.compile(r"\d")
 WORDY = re.compile(r"^[a-zA-Z\s]+$")
+# qalc functions with side effects (run a program, write or read files); qalc has no flag to disable them.
+# No word boundary: "2save(x)" would still parse as a product.
+QALC_UNSAFE = re.compile(r"(?:command|export|load|plot|save)\s*\(", re.I)
 DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}:\d{2}")
 
 
@@ -135,6 +138,8 @@ class Calculator(Provider):
                      recordable=False, score=990, _expr=q)]
 
     def _qalc(self, q: str) -> str | None:
+        if QALC_UNSAFE.search(q):
+            return None
         argv = ["qalc", "-t", "-m", "800"]
         if self.settings.get("calculator.currency") and time.time() - self._rates_checked > 86400:
             # -e: fetch fresh exchange rates (once a day; qalc caches them).

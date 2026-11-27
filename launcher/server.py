@@ -485,7 +485,9 @@ class Server:
             threading.Thread(target=self.run, args=(str(msg.get("id") or ""), str(msg.get("action") or "default"),
                                                     msg.get("arg")), daemon=True).start()
         elif op == "submit":
-            self.submit(str(msg.get("form") or ""), msg.get("values") or {})
+            # A confirmed script can run for up to 30 s; keep reading queries meanwhile.
+            threading.Thread(target=self.submit, args=(str(msg.get("form") or ""), msg.get("values") or {}),
+                             daemon=True).start()
         elif op == "copy":
             util.copy(str(msg.get("text") or ""))
         elif op == "stop":

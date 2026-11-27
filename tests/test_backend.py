@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -91,6 +92,45 @@ class MarkdownTest(unittest.TestCase):
 
     def test_unclosed_backtick(self):
         self.assertNotIn("<img", knowledge.sanitize_markdown("oops ` <img src=x>"))
+
+
+class MarkdownBypassTest(unittest.TestCase):
+    def check_inert(self, md):
+        out = knowledge.sanitize_markdown(md)
+        self.assertNotIn("![", out, md)
+        self.assertNotRegex(out, r"<[A-Za-z/!?]", md)
+        return out
+
+    def test_mismatched_inline_backticks(self):
+        self.check_inert("x ``` ![a](http://h/p.png) `` y `")
+
+    def test_fence_with_backtick_in_info_string(self):
+        out = self.check_inert("``` a`b\n![a](http://h/p.png)\n<img src=x>")
+        self.assertNotIn("<img", out)
+
+    def test_nested_fences(self):
+        out = self.check_inert("````\n```\n![a](http://h/p.png)\n````\n![b](http://h/q.png)")
+        self.assertIn("```\n", out)
+
+    def test_reference_style_image(self):
+        out = self.check_inert("![a][ref]\n\n[ref]: http://h/p.png")
+        self.assertNotIn("]: http", out)
+
+    def test_image_inside_code_is_defanged(self):
+        self.check_inert("```\n![a](http://h/p.png)\n```\n`<img src=x>`")
+
+    def test_normal_answer_stays_readable(self):
+        md = "Edit it:\n\n```bash\nif [ $a -lt 3 ]; then echo hi; fi\nx=$((a < b))\n```\n\nThen run `omarchy-restart`."
+        self.assertEqual(knowledge.sanitize_markdown(md), md)
+
+
+class QalcGuardTest(unittest.TestCase):
+    def test_side_effect_functions_never_reach_qalc(self):
+        c = calc.Calculator(_Ctx())
+        for q in ("command(touch /tmp/x) + 1", "EXPORT (1, /tmp/x) 2", "load(/etc/passwd)1", "plot(x) 2", "save(1, a) 3"):
+            with mock.patch.object(calc.util, "communicate") as comm, mock.patch.object(calc.util, "have", return_value=True):
+                self.assertIsNone(c._qalc(q), q)
+                comm.assert_not_called()
 
 
 class JsoncTest(unittest.TestCase):
@@ -320,7 +360,7 @@ class FixesTest(unittest.TestCase):
             out = knowledge.sanitize_markdown(md)
             self.assertNotIn("![", out, md)
             self.assertNotIn("]: http", out, md)
-        self.assertIn("![x](y)", knowledge.sanitize_markdown("`![x](y)`"), "code stays literal")
+        self.assertIn("`!\u200b[x](y)`", knowledge.sanitize_markdown("`![x](y)`"), "code only gets an invisible joiner")
 
     def test_calculator(self):
         ev = calc.safe_eval

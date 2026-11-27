@@ -111,13 +111,14 @@ class Plugins(Provider):
 
     def search(self, q, scoped):
         found = self.rank(q, self._commands())
-        # "awake 2h": the command that takes a duration, filled in.
+        # "awake 2h": the command that takes a duration, filled in. An id of its own:
+        # the filled-in copy must never stand in for the plain command in history.
         head, _, rest = q.strip().partition(" ")
         if rest and head.lower() == "awake" and installed("jvdp.awake"):
-            found.append(dict(cmd("awake-for", f"Stay awake for {rest}", "Awake", "󰅶", None, run="awake-for",
+            found.append(dict(cmd("awake-for:filled", f"Stay awake for {rest}", "Awake", "󰅶", None, run="awake-for",
                                   plugin="Awake"), score=960, _filled=rest, recordable=False))
         if rest and head.lower() == "block" and installed("jvdp.netwatch"):
-            found.append(dict(cmd("nw-block", f"Block {rest}", "Netwatch", "󰒃", None, run="nw-block",
+            found.append(dict(cmd("nw-block:filled", f"Block {rest}", "Netwatch", "󰒃", None, run="nw-block",
                                   plugin="Netwatch"), score=960, _filled=rest, recordable=False))
         return found
 

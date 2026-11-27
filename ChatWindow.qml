@@ -102,20 +102,24 @@ Item {
   Timer { id: noticeTimer; interval: 1600; onTriggered: chat.notice = "" }
 
   // Prose and fenced code blocks, in order; an unclosed fence (still
-  // streaming) counts as code up to the end.
+  // streaming) counts as code up to the end. Fences follow CommonMark, like
+  // sanitize_markdown in the backend: a closing fence uses the same character
+  // and is at least as long, and a backtick fence's info string has no backtick.
   function segments(text) {
-    var out = [], prose = [], code = null
+    var out = [], prose = [], code = null, fence = ""
     var lines = String(text || "").split("\n")
     for (var i = 0; i < lines.length; i++) {
-      if (/^\s*(```|~~~)/.test(lines[i])) {
-        if (code === null) {
-          if (prose.join("\n").trim()) out.push({ code: false, text: prose.join("\n") })
-          prose = []
-          code = []
-        } else {
-          out.push({ code: true, text: code.join("\n") })
-          code = null
-        }
+      var m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[i])
+      if (m && code === null && !(m[1][0] === "`" && m[2].indexOf("`") >= 0)) {
+        if (prose.join("\n").trim()) out.push({ code: false, text: prose.join("\n") })
+        prose = []
+        code = []
+        fence = m[1]
+        continue
+      }
+      if (m && code !== null && m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) {
+        out.push({ code: true, text: code.join("\n") })
+        code = null
         continue
       }
       if (code !== null) code.push(lines[i])
